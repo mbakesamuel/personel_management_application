@@ -1,0 +1,916 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum tbl_personnel_workflow_status {
+  PENDING
+  VALIDATED
+  REJECTED
+  SUPERSEDED
+}
+
+enum tbl_emp_contract_type {
+  SPECIFIED
+  UNSPECIFIED
+}
+
+model tbl_employee {
+  matricule     String   @id
+  name          String
+  firstname     String?
+  dateBirth     DateTime
+  placeBirth    String
+  sex           String
+  nationality   String?
+
+  employments      tbl_emp_employment[]
+  familyInfos      tbl_emp_family[]
+  kinInfos         tbl_emp_nextkin[]
+  departures       tbl_emp_departure[]
+  maritalStatuses  tbl_emp_marital_status[]
+  empInsurance     tbl_emp_insurance[]
+  movements        tbl_emp_movement[]
+  classifications  tbl_emp_class[]
+  nationalities tbl_emp_nat_iden[]
+  allowanceAllocation tbl_allowance_allocation[]
+  fletRegistrations flet_registration[]
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([workflowStatus])
+}
+
+model tbl_emp_nat_iden {
+  id              Int     @id @default(autoincrement())
+  matricule       String
+  idNumber        String
+  date_issue         DateTime
+  place_issue        String
+  date_expiry        DateTime
+  employee        tbl_employee        @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_insurance {
+  id               Int      @id @default(autoincrement())
+  matricule        String
+  ins_number      String?
+  centre_id        String
+  reg_date DateTime?
+
+  ins_centre tbl_insurance_centre @relation(fields: [centre_id], references: [id])
+  employee        tbl_employee        @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_marital_status {
+  id              Int    @id @default(autoincrement())
+  matricule       String
+  maritalStatusId String
+  maritalStatus   tbl_marital_status @relation(fields: [maritalStatusId], references: [id])
+  employee        tbl_employee      @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_employment {
+  id            Int      @id @default(autoincrement())
+  matricule     String
+  dateEng       DateTime
+  jobEng        String
+  placeEng      String
+  profession    String?
+  workStat      String?
+  unit          String?
+
+  employee  tbl_employee       @relation(fields: [matricule], references: [matricule])
+  contracts tbl_emp_contract[]
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_contract {
+  id           Int             @id @default(autoincrement())
+  employmentId Int
+  contractType tbl_emp_contract_type
+  startDate    DateTime
+  endDate      DateTime?
+
+  employment tbl_emp_employment @relation(fields: [employmentId], references: [id])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([employmentId])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_family {
+  id            Int       @id @default(autoincrement())
+  matricule     String
+  noSpouses     Int?
+  noChildren    Int?
+  relCode       String?
+  effectiveDate DateTime?
+
+  employee tbl_employee @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_nextkin {
+  id              Int     @id @default(autoincrement())
+  matricule       String
+  nextKinName     String?
+  nextKinRelation String?
+  nextKinAddress  String?
+  effectiveDate   DateTime
+
+  employee tbl_employee @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_departure {
+  id              Int       @id @default(autoincrement())
+  matricule       String
+  dateDeparture   DateTime?
+  reasonDeparture String?
+  effectiveDate   DateTime
+
+  employee tbl_employee @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_movement {
+  id        Int       @id @default(autoincrement())
+  matricule String
+  Eff_date DateTime?
+  From_unit_id  String?
+  From_unit tbl_unit? @relation("EmpMovementFromUnit", fields: [From_unit_id], references: [id])
+  To_unit_id String?
+  To_unit tbl_unit? @relation("EmpMovementToUnit", fields: [To_unit_id], references: [id])
+  Position  String?
+  trans_type_id Int
+  TransferType tbl_transfer_type @relation(fields: [trans_type_id], references: [id])
+
+  employee tbl_employee @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+  @@index([From_unit_id])
+  @@index([To_unit_id])
+}
+
+model tbl_emp_class {
+  id             Int      @id @default(autoincrement())
+  matricule      String
+  category       String
+  echelon        String
+  zone           Int?
+  class_type     String?
+  caption        String?
+  letter_ref     String?
+  letter_date    DateTime?
+  effective_date DateTime
+  comment        String?
+
+  employee tbl_employee @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  createdById    Int
+  updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+
+model tbl_designation {
+  id          Int     @id @default(autoincrement())
+  designation String? @db.VarChar(255)
+}
+
+model tbl_diploma{
+  id          String    @id
+  deplomaName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_region{
+  id          String    @id
+  religionName String
+  divisions   tbl_division[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_division{
+  id          String    @id
+  divisionName String
+  regionId    String
+
+  region tbl_region @relation(fields: [regionId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+model tbl_Language{
+  id          String    @id
+  language    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_marital_status{
+  id          String    @id
+  marital_status String
+  EmpMaritalStatus tbl_emp_marital_status[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_nationality{
+  id          String    @id
+  nationality String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_religion{
+  id          String    @id
+  religionName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_sanction{
+  id          String    @id
+  sanctionName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_Sex{
+  id          String    @id
+  sexName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_classification{
+  id          String    @id
+  class_Name String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+model tbl_worker_union{
+  id          String    @id   
+  unionName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_work_status{
+  id            String    @id
+  workStatus    String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model tbl_transfer_type{
+  id              Int     @id @default(autoincrement())
+  Type_transfer   String  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  EmpMovement tbl_emp_movement[]
+}
+
+model tbl_absence{
+  id         String    @id
+  absenceType String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_insurance_centre {
+  id          String   @id
+  centreName String
+  EmpInsurance tbl_emp_insurance[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model tbl_bank {
+  id          String   @id
+  bankName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+
+
+model tbl_perfappraisal {
+  id            Int       @id @default(autoincrement())
+  appyear       Int?
+  matric        String?   @db.VarChar(6)
+  date_lmerit   DateTime? @db.DateTime(0)
+  date_lstat    DateTime? @db.DateTime(0)
+  date_lpro     DateTime? @db.DateTime(0)
+  lengthservice String?   @db.VarChar(255)
+  pre_cat       String?   @db.VarChar(255)
+  pro_cat       String?   @db.VarChar(255)
+  tbl_award_id  Int?
+}
+
+model tbl_salaryreview {
+  id             Int       @id @default(autoincrement())
+  appyear        Int?
+  matric         String?   @db.VarChar(6)
+  names          String?   @db.VarChar(255)
+  tbl_section_id Float?
+  designation    String?   @db.VarChar(255)
+  dateeng        DateTime? @db.DateTime(0)
+  lengthservice  String?   @db.VarChar(255)
+  date_lpro      DateTime? @db.DateTime(0)
+  date_lmer      DateTime? @db.DateTime(0)
+  date_lstat     DateTime? @db.DateTime(0)
+  precat         String?   @db.VarChar(255)
+  procat         String?   @db.VarChar(255)
+  presalary      Int?
+  prosalary      Int?
+  finincmonth    Int?
+  finincyear     Int?
+  award          String?   @db.VarChar(255)
+}
+
+model tbl_award {
+  id    Int     @id @default(autoincrement())
+  award String? @db.VarChar(255)
+}
+
+
+model tbl_scale1 {
+  catid      Int          @id @default(autoincrement())
+  cat        Int?
+  tbl_scale2 tbl_scale2[]
+}
+
+
+model tbl_scale2 {
+  echid      Int         @id @default(autoincrement())
+  ech        String?     @db.VarChar(50)
+  bsal       Int         @default(0)
+  catid      Int?        @default(0)
+  tbl_scale1 tbl_scale1? @relation(fields: [catid], references: [catid], onDelete: Cascade, map: "_24ba9bd7-e161-4baa-80f4-a52528d50bb5_")
+
+  @@index([catid], map: "idx_catid")
+}
+
+
+model tbl_financialyear {
+  id        Int         @id @default(autoincrement())
+  appyear   Int         @unique
+  closed    Boolean     @default(false)
+  tbl_users tbl_users[]
+}
+
+model tbl_users {
+  id                   Int                @id @default(autoincrement())
+  username             String?            @db.VarChar(255)
+  password             String?            @db.VarChar(255)
+  mustChangePassword   Boolean            @default(false)
+  tbl_financialyear_id Int?
+  role                 String             @default("SECRETARY") @db.VarChar(30)
+  tbl_group_id         String?
+  tbl_zone_id          String?
+  tbl_section_id       Int?
+  tbl_unit_id          String?            @db.VarChar(3)
+  tbl_financialyear    tbl_financialyear? @relation(fields: [tbl_financialyear_id], references: [id])
+
+  @@index([tbl_financialyear_id])
+  @@index([tbl_group_id])
+  @@index([tbl_zone_id])
+  @@index([tbl_unit_id])
+  @@index([tbl_section_id])
+}
+
+model tbl_group {
+  id         String    @id
+  group_name String
+  active     Boolean   @default(true)
+  createdat  DateTime  @default(now())
+  updatedat  DateTime
+  zones      tbl_zone[]
+}
+
+model tbl_zone {
+  id        String     @id
+  zone_name String
+  groupId   String
+  active    Boolean    @default(true)
+  createdat DateTime   @default(now())
+  updatedat DateTime
+  group     tbl_group  @relation(fields: [groupId], references: [id])
+  units     tbl_unit[]
+
+  @@index([groupId])
+}
+
+model tbl_unit {
+  id        String   @id
+  unit_name String
+  groupid   String
+  zoneId    String
+  active    Boolean  @default(true)
+  createdat DateTime @default(now())
+  updatedat DateTime
+  zone      tbl_zone @relation(fields: [zoneId], references: [id])
+
+  movementsFrom tbl_emp_movement[] @relation("EmpMovementFromUnit")
+  movementsTo   tbl_emp_movement[] @relation("EmpMovementToUnit")
+
+  @@index([groupid], map: "unit_groupid_fkey")
+  @@index([zoneId])
+}
+
+model tbl_section {
+  id               Int                @id
+  section          String?            @db.VarChar(255)
+  tbl_unit_id      String?            @db.VarChar(3)
+  active           Boolean            @default(true)
+  tbl_section_thro tbl_section_thro[]
+
+  @@index([tbl_unit_id], map: "ecode")
+}
+
+//auth specific models.
+
+model tbl_jurisdiction {
+  code      String  @id @db.VarChar(30)
+  label     String  @db.VarChar(120)
+  rank      Int
+  scopeKind String  @db.VarChar(20)
+  system    Boolean @default(false)
+  active    Boolean @default(true)
+}
+
+model tbl_roles {
+  code                 String  @id @db.VarChar(30)
+  label                String  @db.VarChar(120)
+  jurisdiction         String  @db.VarChar(30)
+  can_appraisals       Boolean @default(true)
+  can_financial_years  Boolean @default(false)
+  can_organization         Boolean @default(false)
+  can_personnel            Boolean @default(false)
+  can_allowances           Boolean @default(false)
+  can_allowance_types      Boolean @default(false)
+  can_allowance_catalog    Boolean @default(false)
+  can_allowance_rates      Boolean @default(false)
+  can_allowance_allocations Boolean @default(false)
+  can_position_keywords    Boolean @default(false)
+  can_allowance_matrix     Boolean @default(false)
+  can_validate             Boolean @default(false)
+  can_demote_classification Boolean @default(false)
+  can_letter_cc        Boolean @default(false)
+  can_decision_matrix  Boolean @default(false)
+  can_through_officers Boolean @default(false)
+  can_import_history   Boolean @default(false)
+  can_export_history   Boolean @default(false)
+  can_users            Boolean @default(false)
+  can_roles            Boolean @default(false)
+}
+
+
+
+
+//appraisal specific models.
+model tbl_unit_signatory {
+  id          Int       @id @default(autoincrement())
+  tbl_unit_id String?   @db.VarChar(3)
+  signatory   String?   @db.VarChar(255)
+  title       String?   @db.VarChar(255)
+  effdate     DateTime? @db.DateTime(0)
+
+  @@index([tbl_unit_id], map: "idx_tbl_estate_id")
+}
+
+model tbl_decision_level {
+  code                     String                     @id @db.VarChar(30)
+  title                    String                     @db.VarChar(120)
+  cat_from                 Int
+  cat_to                   Int
+  scope                    String                     @db.VarChar(10)
+  tbl_decision_assignment  tbl_decision_assignment[]
+}
+
+model tbl_decision_assignment {
+  id                       Int                 @id @default(autoincrement())
+  level_code               String              @db.VarChar(30)
+  signatory                String              @db.VarChar(255)
+  title                    String              @db.VarChar(255)
+  tbl_unit_id              String?             @db.VarChar(3)
+  tbl_group_id             String?
+  effdate                  DateTime            @db.DateTime(0)
+  tbl_decision_level       tbl_decision_level  @relation(fields: [level_code], references: [code], onDelete: Restrict)
+
+  @@index([level_code])
+  @@index([tbl_unit_id])
+  @@index([tbl_group_id])
+  @@index([effdate])
+  @@unique([level_code, tbl_unit_id, effdate], map: "uniq_decision_unit_effdate")
+  @@unique([level_code, tbl_group_id, effdate], map: "uniq_decision_group_effdate")
+}
+
+model tbl_letter_cc {
+  id                      Int                       @id @default(autoincrement())
+  label                   String                    @unique @db.VarChar(120)
+  sort_order              Int
+  active                  Boolean                   @default(true)
+  tbl_unit_letter_cc_hide tbl_unit_letter_cc_hide[]
+
+  @@index([sort_order])
+}
+
+model tbl_unit_letter_cc_hide {
+  id            Int          @id @default(autoincrement())
+  tbl_unit_id   String       @db.VarChar(3)
+  letter_cc_id  Int
+  tbl_letter_cc tbl_letter_cc @relation(fields: [letter_cc_id], references: [id], onDelete: Cascade)
+
+  @@unique([tbl_unit_id, letter_cc_id], map: "uniq_unit_letter_cc_hide")
+  @@index([tbl_unit_id])
+}
+
+model tbl_unit_letter_cc {
+  id          Int     @id @default(autoincrement())
+  tbl_unit_id String  @db.VarChar(3)
+  label       String  @db.VarChar(120)
+  sort_order  Int
+  active      Boolean @default(true)
+
+  @@unique([tbl_unit_id, label], map: "uniq_unit_letter_cc_label")
+  @@index([tbl_unit_id, sort_order])
+}
+
+model tbl_section_thro {
+  id             Int         @id @default(autoincrement())
+  tbl_section_id Int
+  signatory      String      @db.VarChar(255)
+  title          String      @db.VarChar(255)
+  effdate        DateTime    @db.DateTime(0)
+  tbl_section    tbl_section @relation(fields: [tbl_section_id], references: [id], onDelete: Restrict)
+
+  @@index([tbl_section_id])
+  @@index([effdate])
+  @@unique([tbl_section_id, effdate], map: "uniq_section_thro_effdate")
+}
+
+//allowances specific models.
+model tbl_allowance {
+  id            String   @id
+  allowanceName String
+  allowanceTypeId String?
+  allowanceType tbl_allowance_type? @relation(fields: [allowanceTypeId], references: [id])
+  allowanceRate tbl_allowance_rate[]
+  allowanceAllocation tbl_allowance_allocation[]
+  allowanceKeywords tbl_allowance_keyword[]
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  createdAt      DateTime                      @default(now())
+  createdById    Int
+  updatedAt      DateTime                      @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([allowanceTypeId])
+  @@index([workflowStatus])
+}
+
+model tbl_allowance_type {
+  id                String         @id
+  allowanceTypeName String
+  allowances        tbl_allowance[]
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  createdAt      DateTime                      @default(now())
+  createdById    Int
+  updatedAt      DateTime                      @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([workflowStatus])
+}
+
+model tbl_allowance_rate {
+  id                Int                   @id @default(autoincrement())
+  allowanceId       String
+  positionKeywordId Int?
+  allowanceAmtMin   Float                 @map("allowance_amt_min")
+  allowanceAmtMax   Float                 @map("allowance_amt_max")
+  effectiveDate     DateTime
+  allowance         tbl_allowance         @relation(fields: [allowanceId], references: [id])
+  positionKeyword   tbl_position_keyword? @relation(fields: [positionKeywordId], references: [id], onDelete: SetNull)
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                       @default(false)
+  createdAt      DateTime                      @default(now())
+  createdById    Int
+  updatedAt      DateTime                      @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([allowanceId])
+  @@index([positionKeywordId])
+  @@index([allowanceId, positionKeywordId])
+  @@index([workflowStatus])
+  @@index([allowanceId, effectiveDate])
+}
+
+model tbl_allowance_allocation {
+  id            Int           @id @default(autoincrement())
+  matricule     String
+  allowanceId   String
+  allowanceAmt  Float         @map("allowance_amt")
+  effectiveDate DateTime
+
+  allowance tbl_allowance @relation(fields: [allowanceId], references: [id])
+  employee  tbl_employee  @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                       @default(false)
+  createdAt      DateTime                      @default(now())
+  createdById    Int
+  updatedAt      DateTime                      @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([allowanceId])
+  @@index([matricule])
+  @@index([workflowStatus])
+  @@index([matricule, allowanceId, effectiveDate])
+}
+
+model tbl_position_keyword {
+  id        Int      @id @default(autoincrement())
+  keyword   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  allowanceKeywords tbl_allowance_keyword[]
+  allowanceRates    tbl_allowance_rate[]
+
+  @@unique([keyword])
+  @@index([active])
+}
+
+model tbl_allowance_keyword {
+  id          Int      @id @default(autoincrement())
+  allowanceId String
+  keywordId   Int
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  allowance tbl_allowance        @relation(fields: [allowanceId], references: [id], onDelete: Cascade)
+  keyword   tbl_position_keyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@unique([allowanceId, keywordId])
+  @@index([keywordId])
+  @@index([allowanceId])
+  @@index([active])
+}
+
+//communication allowances specific models.
+
+model tbl_operator {
+  id            Int       @id @default(autoincrement())
+  name          String
+  email         String
+  phone         String
+  address       String
+  country       String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  isActive      Boolean   @default(true)
+ 
+  numberPrefixes number_prefix[]
+  fletRegistrations flet_registration[]
+  @@index([isActive])
+  @@index([email])
+  @@index([phone])
+
+}
+
+model number_prefix {
+  id            Int       @id @default(autoincrement())
+  prefix        String
+  operator_id   Int
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  isActive      Boolean   @default(true)
+
+  operator tbl_operator @relation(fields: [operator_id], references: [id])
+
+  @@index([isActive])
+  @@index([prefix])
+  @@index([createdAt])
+  @@index([updatedAt])
+
+  }
+
+  model flet_registration {
+    id            Int       @id @default(autoincrement())
+    matricule             String
+    operator_id           Int
+    amount                Float
+    effective_date        DateTime
+    end_date              DateTime
+    isActive      Boolean   @default(true)
+    
+    operator tbl_operator @relation(fields: [operator_id], references: [id])   
+    employee              tbl_employee @relation(fields: [matricule], references: [matricule])
+    
+    createdAt     DateTime  @default(now())
+    updatedAt     DateTime  @updatedAt
+  
+
+    @@index([isActive])
+    @@index([matricule])
+    @@index([createdAt])
+    @@index([updatedAt])
+  }
+
+//this could be used to store monthly generated allowance payments.
+ model flet_payment {
+  id            Int       @id @default(autoincrement())
+  matricule             String
+  operator_id           Int
+  amount                Float
+  effective_date        DateTime
+  end_date              DateTime
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([isActive])
+  @@index([matricule])
+  @@index([createdAt])
+  @@index([updatedAt])
+ }

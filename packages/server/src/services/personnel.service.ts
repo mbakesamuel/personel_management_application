@@ -1,0 +1,1743 @@
+import { Prisma, type tbl_personnel_workflow_status } from '@prisma/client'
+import type {
+  EmployeeCreateInput,
+  EmployeeListQuery,
+  EmployeeListResponse,
+  EmployeeOption,
+  EmployeeUpdateInput,
+  WorkflowStatus,
+} from '@perf-appraisal-app/shared'
+import { formatProposedCat } from '@perf-appraisal-app/shared'
+import { prisma } from '../db.js'
+import { resolveCatAndEchIds } from './category-proposal.service.js'
+import { getPermissionsForRole } from './roles.service.js'
+import {
+  assertCanEdit,
+  assertCanReject,
+  assertCanValidate,
+  editStamps,
+  parseDate,
+  parseOptionalDate,
+  pendingCreateStamps,
+  PersonnelConflictError,
+  PersonnelNotFoundError,
+  PersonnelWorkflowError,
+  rejectStamps,
+  validateStamps,
+} from './personnel-workflow.js'
+
+export type PersonnelListQuery = {
+  matricule?: string
+  employmentId?: number
+  workflowStatus?: tbl_personnel_workflow_status
+  current?: boolean
+  page?: number
+  limit?: number
+  search?: string
+  includeDeleted?: boolean
+  sortBy?: 'matricule' | 'name'
+}
+
+export type ReviewInput = {
+  reviewNote?: string | null
+}
+
+function pagination(query: PersonnelListQuery) {
+  const page = Math.max(1, query.page ?? 1)
+  const limit = Math.min(100, Math.max(1, query.limit ?? 20))
+  return { page, limit, skip: (page - 1) * limit }
+}
+
+function toIso(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null
+}
+
+function toDateOnly(value: Date): string {
+  return value.toISOString().slice(0, 10)
+}
+
+function mapEmployee(row: {
+  matricule: string
+  name: string
+  firstname: string | null
+  dateBirth: Date
+  placeBirth: string
+  sex: string
+  nationality: string | null
+  workflowStatus: tbl_personnel_workflow_status
+  createdAt: Date
+  createdById: number
+  updatedAt: Date
+  updatedById: number | null
+  validatedAt: Date | null
+  validatedById: number | null
+  rejectedAt: Date | null
+  rejectedById: number | null
+  reviewNote: string | null
+}): EmployeeOption {
+  return {
+    matricule: row.matricule,
+    name: row.name,
+    firstname: row.firstname,
+    dateBirth: toDateOnly(row.dateBirth),
+    placeBirth: row.placeBirth,
+    sex: row.sex,
+    nationality: row.nationality,
+    workflowStatus: row.workflowStatus as WorkflowStatus,
+    createdAt: row.createdAt.toISOString(),
+    createdById: row.createdById,
+    updatedAt: row.updatedAt.toISOString(),
+    updatedById: row.updatedById,
+    validatedAt: toIso(row.validatedAt),
+    validatedById: row.validatedById,
+    rejectedAt: toIso(row.rejectedAt),
+    rejectedById: row.rejectedById,
+    reviewNote: row.reviewNote,
+  }
+}
+
+async function requireEmployee(matricule: string) {
+  const employee = await prisma.tbl_employee.findUnique({
+    where: { matricule },
+    select: { matricule: true },
+  })
+  if (!employee) {
+    throw new PersonnelNotFoundError(`No employee found for matricule ${matricule}`)
+  }
+}
+
+async function requireEmployment(employmentId: number) {
+  const employment = await prisma.tbl_emp_employment.findUnique({
+    where: { id: employmentId },
+    select: { id: true, matricule: true },
+  })
+  if (!employment) {
+    throw new PersonnelNotFoundError(
+      `No employment found for id ${employmentId}`,
+    )
+  }
+  return employment
+}
+
+async function assertContractTypeProgression(
+  employmentId: number,
+  incomingType: 'SPECIFIED' | 'UNSPECIFIED',
+  excludeId?: number,
+) {
+  const current = await prisma.tbl_emp_contract.findFirst({
+    where: {
+      employmentId,
+      current: true,
+      workflowStatus: 'VALIDATED',
+      ...(excludeId != null ? { NOT: { id: excludeId } } : {}),
+    },
+    select: { contractType: true },
+  })
+  if (!current) return
+  if (
+    current.contractType === 'UNSPECIFIED' &&
+    incomingType === 'SPECIFIED'
+  ) {
+    throw new PersonnelWorkflowError(
+      'Cannot change contract from unspecified to specified duration',
+      400,
+    )
+  }
+}
+
+function workflowFilter(query: PersonnelListQuery) {
+  return {
+    ...(query.matricule ? { matricule: query.matricule } : {}),
+    ...(query.workflowStatus ? { workflowStatus: query.workflowStatus } : {}),
+  }
+}
+
+function mapPrismaError(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === 'P2025') {
+      throw new PersonnelNotFoundError()
+    }
+    if (error.code === 'P2002') {
+      throw new PersonnelConflictError('Record already exists')
+    }
+    if (error.code === 'P2003') {
+      throw new PersonnelWorkflowError('Invalid reference', 400)
+    }
+  }
+  throw error
+}
+
+async function withPrisma<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (error) {
+    mapPrismaError(error)
+  }
+}
+
+export const employeeService = {
+  async list(query: EmployeeListQuery): Promise<EmployeeListResponse> {
+    const { page, limit, skip } = pagination(query)
+    const search = query.search?.trim()
+    const sortBy = query.sortBy ?? 'name'
+    const where: Prisma.tbl_employeeWhereInput = {
+      ...(query.workflowStatus ? { workflowStatus: query.workflowStatus } : {}),
+      ...(search
+        ? {
+            OR: [
+              { matricule: { contains: search } },
+              { name: { contains: search } },
+              { firstname: { contains: search } },
+            ],
+          }
+        : {}),
+    }
+
+    const orderBy: Prisma.tbl_employeeOrderByWithRelationInput[] =
+      sortBy === 'matricule'
+        ? [{ matricule: 'asc' }, { name: 'asc' }]
+        : [{ name: 'asc' }, { matricule: 'asc' }]
+
+    const [rows, total] = await Promise.all([
+      prisma.tbl_employee.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+      }),
+      prisma.tbl_employee.count({ where }),
+    ])
+
+    return {
+      items: rows.map(mapEmployee),
+      total,
+      page,
+      limit,
+    }
+  },
+
+  async options() {
+    return prisma.tbl_employee.findMany({
+      where: { workflowStatus: 'VALIDATED' },
+      select: { matricule: true, name: true, firstname: true },
+      orderBy: [{ name: 'asc' }, { matricule: 'asc' }],
+    })
+  },
+
+  async get(matricule: string): Promise<EmployeeOption> {
+    const row = await prisma.tbl_employee.findUnique({
+      where: { matricule },
+    })
+    if (!row) throw new PersonnelNotFoundError('Employee not found')
+    return mapEmployee(row)
+  },
+
+  async create(
+    userId: number,
+    input: EmployeeCreateInput,
+  ): Promise<EmployeeOption> {
+    return withPrisma(async () => {
+      const row = await prisma.tbl_employee.create({
+        data: {
+          matricule: input.matricule.trim(),
+          name: input.name.trim(),
+          firstname: input.firstname?.trim() || null,
+          dateBirth: parseDate(input.dateBirth, 'dateBirth'),
+          placeBirth: input.placeBirth.trim(),
+          sex: input.sex.trim(),
+          nationality: input.nationality?.trim() || null,
+          ...pendingCreateStamps(userId),
+        },
+      })
+      return mapEmployee(row)
+    })
+  },
+
+  async update(
+    userId: number,
+    matricule: string,
+    input: EmployeeUpdateInput,
+  ): Promise<EmployeeOption> {
+    const existing = await prisma.tbl_employee.findUnique({
+      where: { matricule },
+    })
+    if (!existing) throw new PersonnelNotFoundError('Employee not found')
+    assertCanEdit(existing.workflowStatus)
+    return withPrisma(async () => {
+      const row = await prisma.tbl_employee.update({
+        where: { matricule },
+        data: {
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.firstname !== undefined
+            ? { firstname: input.firstname?.trim() || null }
+            : {}),
+          ...(input.dateBirth !== undefined
+            ? { dateBirth: parseDate(input.dateBirth, 'dateBirth') }
+            : {}),
+          ...(input.placeBirth !== undefined
+            ? { placeBirth: input.placeBirth.trim() }
+            : {}),
+          ...(input.sex !== undefined ? { sex: input.sex.trim() } : {}),
+          ...(input.nationality !== undefined
+            ? { nationality: input.nationality?.trim() || null }
+            : {}),
+          ...editStamps(userId, existing.workflowStatus),
+        },
+      })
+      return mapEmployee(row)
+    })
+  },
+
+  async validate(
+    userId: number,
+    matricule: string,
+    review?: ReviewInput,
+  ): Promise<EmployeeOption> {
+    const row = await prisma.tbl_employee.findUnique({ where: { matricule } })
+    if (!row) throw new PersonnelNotFoundError('Employee not found')
+    assertCanValidate(row, userId)
+    const updated = await prisma.tbl_employee.update({
+      where: { matricule },
+      data: validateStamps(userId, review?.reviewNote),
+    })
+    return mapEmployee(updated)
+  },
+
+  async reject(
+    userId: number,
+    matricule: string,
+    review?: ReviewInput,
+  ): Promise<EmployeeOption> {
+    const row = await prisma.tbl_employee.findUnique({ where: { matricule } })
+    if (!row) throw new PersonnelNotFoundError('Employee not found')
+    assertCanReject(row.workflowStatus)
+    const updated = await prisma.tbl_employee.update({
+      where: { matricule },
+      data: rejectStamps(userId, review?.reviewNote),
+    })
+    return mapEmployee(updated)
+  },
+}
+
+type WorkflowChild = {
+  id: number
+  matricule?: string
+  workflowStatus: tbl_personnel_workflow_status
+  createdById: number
+}
+
+async function loadChild<T>(
+  loader: () => Promise<T | null>,
+  label: string,
+): Promise<T> {
+  const row = await loader()
+  if (!row) throw new PersonnelNotFoundError(`${label} not found`)
+  return row
+}
+
+async function supersedeAndValidate<T>(args: {
+  userId: number
+  review?: ReviewInput
+  row: WorkflowChild
+  extraAssert?: () => void | Promise<void>
+  supersede: (tx: Prisma.TransactionClient) => Promise<unknown>
+  validate: (
+    tx: Prisma.TransactionClient,
+    data: ReturnType<typeof validateStamps> & Record<string, unknown>,
+  ) => Promise<T>
+  extraData?: Record<string, unknown>
+}) {
+  assertCanValidate(args.row, args.userId)
+  await args.extraAssert?.()
+  return prisma.$transaction(async (tx) => {
+    await args.supersede(tx)
+    return args.validate(tx, {
+      ...validateStamps(args.userId, args.review?.reviewNote),
+      ...args.extraData,
+    })
+  })
+}
+
+export const identificationService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_nat_iden.findMany({
+      where: {
+        ...workflowFilter(query),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () => prisma.tbl_emp_nat_iden.findUnique({ where: { id } }),
+      'Identification',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      matricule: string
+      idNumber: string
+      date_issue: string
+      place_issue: string
+      date_expiry: string
+    },
+  ) {
+    await requireEmployee(input.matricule)
+    return withPrisma(() =>
+      prisma.tbl_emp_nat_iden.create({
+        data: {
+          matricule: input.matricule,
+          idNumber: input.idNumber.trim(),
+          date_issue: parseDate(input.date_issue, 'date_issue'),
+          place_issue: input.place_issue.trim(),
+          date_expiry: parseDate(input.date_expiry, 'date_expiry'),
+          current: false,
+          ...pendingCreateStamps(userId),
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      idNumber?: string
+      date_issue?: string
+      place_issue?: string
+      date_expiry?: string
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    return withPrisma(() =>
+      prisma.tbl_emp_nat_iden.update({
+        where: { id },
+        data: {
+          ...(input.idNumber !== undefined
+            ? { idNumber: input.idNumber.trim() }
+            : {}),
+          ...(input.date_issue !== undefined
+            ? { date_issue: parseDate(input.date_issue, 'date_issue') }
+            : {}),
+          ...(input.place_issue !== undefined
+            ? { place_issue: input.place_issue.trim() }
+            : {}),
+          ...(input.date_expiry !== undefined
+            ? { date_expiry: parseDate(input.date_expiry, 'date_expiry') }
+            : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      extraData: { current: true },
+      supersede: (tx) =>
+        tx.tbl_emp_nat_iden.updateMany({
+          where: { matricule: row.matricule, current: true, NOT: { id } },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) =>
+        tx.tbl_emp_nat_iden.update({ where: { id }, data }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_nat_iden.update({
+      where: { id },
+      data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+    })
+  },
+}
+
+export const insuranceService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_insurance.findMany({
+      where: {
+        ...workflowFilter(query),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      include: { ins_centre: true },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () =>
+        prisma.tbl_emp_insurance.findUnique({
+          where: { id },
+          include: { ins_centre: true },
+        }),
+      'Insurance',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      matricule: string
+      ins_number?: string | null
+      centre_id: string
+      reg_date?: string | null
+    },
+  ) {
+    await requireEmployee(input.matricule)
+    return withPrisma(() =>
+      prisma.tbl_emp_insurance.create({
+        data: {
+          matricule: input.matricule,
+          ins_number: input.ins_number ?? null,
+          centre_id: input.centre_id,
+          reg_date: parseOptionalDate(input.reg_date, 'reg_date') ?? null,
+          current: false,
+          ...pendingCreateStamps(userId),
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      ins_number?: string | null
+      centre_id?: string
+      reg_date?: string | null
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    return withPrisma(() =>
+      prisma.tbl_emp_insurance.update({
+        where: { id },
+        data: {
+          ...(input.ins_number !== undefined
+            ? { ins_number: input.ins_number }
+            : {}),
+          ...(input.centre_id !== undefined ? { centre_id: input.centre_id } : {}),
+          ...(input.reg_date !== undefined
+            ? {
+                reg_date: parseOptionalDate(input.reg_date, 'reg_date') ?? null,
+              }
+            : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      extraData: { current: true },
+      supersede: (tx) =>
+        tx.tbl_emp_insurance.updateMany({
+          where: { matricule: row.matricule, current: true, NOT: { id } },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) =>
+        tx.tbl_emp_insurance.update({ where: { id }, data }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_insurance.update({
+      where: { id },
+      data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+    })
+  },
+}
+
+export const maritalStatusService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_marital_status.findMany({
+      where: {
+        ...workflowFilter(query),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      include: { maritalStatus: true },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () =>
+        prisma.tbl_emp_marital_status.findUnique({
+          where: { id },
+          include: { maritalStatus: true },
+        }),
+      'Marital status',
+    )
+  },
+  async create(
+    userId: number,
+    input: { matricule: string; maritalStatusId: string },
+  ) {
+    await requireEmployee(input.matricule)
+    return withPrisma(() =>
+      prisma.tbl_emp_marital_status.create({
+        data: {
+          matricule: input.matricule,
+          maritalStatusId: input.maritalStatusId,
+          current: false,
+          ...pendingCreateStamps(userId),
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: { maritalStatusId?: string },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    return withPrisma(() =>
+      prisma.tbl_emp_marital_status.update({
+        where: { id },
+        data: {
+          ...(input.maritalStatusId !== undefined
+            ? { maritalStatusId: input.maritalStatusId }
+            : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      extraData: { current: true },
+      supersede: (tx) =>
+        tx.tbl_emp_marital_status.updateMany({
+          where: { matricule: row.matricule, current: true, NOT: { id } },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) =>
+        tx.tbl_emp_marital_status.update({ where: { id }, data }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_marital_status.update({
+      where: { id },
+      data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+    })
+  },
+}
+
+export const employmentService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_employment.findMany({
+      where: {
+        ...workflowFilter(query),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      include: {
+        contracts: { orderBy: [{ id: 'desc' }] },
+      },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () =>
+        prisma.tbl_emp_employment.findUnique({
+          where: { id },
+          include: {
+            contracts: { orderBy: [{ id: 'desc' }] },
+          },
+        }),
+      'Employment',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      matricule: string
+      dateEng: string
+      jobEng: string
+      placeEng: string
+      profession?: string | null
+      workStat?: string | null
+      unit?: string | null
+      contract: {
+        contractType: 'SPECIFIED' | 'UNSPECIFIED'
+        startDate: string
+        endDate?: string | null
+      }
+    },
+  ) {
+    await requireEmployee(input.matricule)
+    const existing = await prisma.tbl_emp_employment.findFirst({
+      where: { matricule: input.matricule },
+      select: { id: true },
+    })
+    if (existing) {
+      throw new PersonnelWorkflowError(
+        'Employee already has an employment record',
+        400,
+      )
+    }
+    if (
+      input.contract.contractType === 'SPECIFIED' &&
+      !input.contract.endDate?.trim()
+    ) {
+      throw new PersonnelWorkflowError(
+        'endDate is required for a specified contract',
+        400,
+      )
+    }
+    return withPrisma(() =>
+      prisma.$transaction(async (tx) => {
+        const employment = await tx.tbl_emp_employment.create({
+          data: {
+            matricule: input.matricule,
+            dateEng: parseDate(input.dateEng, 'dateEng'),
+            jobEng: input.jobEng,
+            placeEng: input.placeEng,
+            profession: input.profession ?? null,
+            workStat: input.workStat ?? null,
+            unit: input.unit ?? null,
+            current: false,
+            ...pendingCreateStamps(userId),
+          },
+        })
+        await tx.tbl_emp_contract.create({
+          data: {
+            employmentId: employment.id,
+            contractType: input.contract.contractType,
+            startDate: parseDate(input.contract.startDate, 'startDate'),
+            endDate:
+              parseOptionalDate(input.contract.endDate, 'endDate') ?? null,
+            current: false,
+            ...pendingCreateStamps(userId),
+          },
+        })
+        return tx.tbl_emp_employment.findUniqueOrThrow({
+          where: { id: employment.id },
+          include: {
+            contracts: { orderBy: [{ id: 'desc' }] },
+          },
+        })
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      dateEng?: string
+      jobEng?: string
+      placeEng?: string
+      profession?: string | null
+      workStat?: string | null
+      unit?: string | null
+      contract?: {
+        contractType: 'SPECIFIED' | 'UNSPECIFIED'
+        startDate: string
+        endDate?: string | null
+      }
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    if (
+      input.contract?.contractType === 'SPECIFIED' &&
+      !input.contract.endDate?.trim()
+    ) {
+      throw new PersonnelWorkflowError(
+        'endDate is required for a specified contract',
+        400,
+      )
+    }
+    return withPrisma(() =>
+      prisma.$transaction(async (tx) => {
+        await tx.tbl_emp_employment.update({
+          where: { id },
+          data: {
+            ...(input.dateEng !== undefined
+              ? { dateEng: parseDate(input.dateEng, 'dateEng') }
+              : {}),
+            ...(input.jobEng !== undefined ? { jobEng: input.jobEng } : {}),
+            ...(input.placeEng !== undefined
+              ? { placeEng: input.placeEng }
+              : {}),
+            ...(input.profession !== undefined
+              ? { profession: input.profession }
+              : {}),
+            ...(input.workStat !== undefined
+              ? { workStat: input.workStat }
+              : {}),
+            ...(input.unit !== undefined ? { unit: input.unit } : {}),
+            ...editStamps(userId, row.workflowStatus),
+          },
+        })
+
+        if (input.contract) {
+          const editable = await tx.tbl_emp_contract.findFirst({
+            where: {
+              employmentId: id,
+              workflowStatus: { in: ['PENDING', 'REJECTED'] },
+            },
+            orderBy: [{ id: 'desc' }],
+          })
+          await assertContractTypeProgression(
+            id,
+            input.contract.contractType,
+            editable?.id,
+          )
+          if (editable) {
+            assertCanEdit(editable.workflowStatus)
+            await tx.tbl_emp_contract.update({
+              where: { id: editable.id },
+              data: {
+                contractType: input.contract.contractType,
+                startDate: parseDate(input.contract.startDate, 'startDate'),
+                endDate:
+                  parseOptionalDate(input.contract.endDate, 'endDate') ?? null,
+                ...editStamps(userId, editable.workflowStatus),
+              },
+            })
+          } else {
+            await tx.tbl_emp_contract.create({
+              data: {
+                employmentId: id,
+                contractType: input.contract.contractType,
+                startDate: parseDate(input.contract.startDate, 'startDate'),
+                endDate:
+                  parseOptionalDate(input.contract.endDate, 'endDate') ?? null,
+                current: false,
+                ...pendingCreateStamps(userId),
+              },
+            })
+          }
+        }
+
+        return tx.tbl_emp_employment.findUniqueOrThrow({
+          where: { id },
+          include: {
+            contracts: { orderBy: [{ id: 'desc' }] },
+          },
+        })
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanValidate(row, userId)
+
+    const pendingContracts = await prisma.tbl_emp_contract.findMany({
+      where: { employmentId: id, workflowStatus: 'PENDING' },
+      orderBy: [{ id: 'desc' }],
+    })
+    for (const contract of pendingContracts) {
+      if (contract.contractType === 'SPECIFIED' && !contract.endDate) {
+        throw new PersonnelWorkflowError(
+          'endDate is required to validate a specified contract',
+          400,
+        )
+      }
+      await assertContractTypeProgression(
+        id,
+        contract.contractType,
+        contract.id,
+      )
+    }
+
+    return prisma.$transaction(async (tx) => {
+      await tx.tbl_emp_employment.updateMany({
+        where: { matricule: row.matricule, current: true, NOT: { id } },
+        data: { current: false, workflowStatus: 'SUPERSEDED' },
+      })
+      const employment = await tx.tbl_emp_employment.update({
+        where: { id },
+        data: {
+          ...validateStamps(userId, review?.reviewNote),
+          current: true,
+        },
+      })
+
+      for (const contract of pendingContracts) {
+        await tx.tbl_emp_contract.updateMany({
+          where: {
+            employmentId: id,
+            current: true,
+            NOT: { id: contract.id },
+          },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        })
+        await tx.tbl_emp_contract.update({
+          where: { id: contract.id },
+          data: {
+            ...validateStamps(userId, review?.reviewNote),
+            current: true,
+          },
+        })
+      }
+
+      return tx.tbl_emp_employment.findUniqueOrThrow({
+        where: { id: employment.id },
+        include: {
+          contracts: { orderBy: [{ id: 'desc' }] },
+        },
+      })
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.$transaction(async (tx) => {
+      await tx.tbl_emp_employment.update({
+        where: { id },
+        data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+      })
+      await tx.tbl_emp_contract.updateMany({
+        where: {
+          employmentId: id,
+          workflowStatus: 'PENDING',
+        },
+        data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+      })
+      return tx.tbl_emp_employment.findUniqueOrThrow({
+        where: { id },
+        include: {
+          contracts: { orderBy: [{ id: 'desc' }] },
+        },
+      })
+    })
+  },
+}
+
+export const contractService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_contract.findMany({
+      where: {
+        ...(query.matricule
+          ? { employment: { matricule: query.matricule } }
+          : {}),
+        ...(query.employmentId != null
+          ? { employmentId: query.employmentId }
+          : {}),
+        ...(query.workflowStatus
+          ? { workflowStatus: query.workflowStatus }
+          : {}),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      include: {
+        employment: {
+          select: {
+            id: true,
+            matricule: true,
+            dateEng: true,
+            jobEng: true,
+            placeEng: true,
+            current: true,
+            workflowStatus: true,
+          },
+        },
+      },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () =>
+        prisma.tbl_emp_contract.findUnique({
+          where: { id },
+          include: {
+            employment: {
+              select: {
+                id: true,
+                matricule: true,
+                dateEng: true,
+                jobEng: true,
+                placeEng: true,
+                current: true,
+                workflowStatus: true,
+              },
+            },
+          },
+        }),
+      'Contract',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      employmentId: number
+      contractType: 'SPECIFIED' | 'UNSPECIFIED'
+      startDate: string
+      endDate?: string | null
+    },
+  ) {
+    const employment = await requireEmployment(input.employmentId)
+    await assertContractTypeProgression(employment.id, input.contractType)
+    return withPrisma(() =>
+      prisma.tbl_emp_contract.create({
+        data: {
+          employmentId: employment.id,
+          contractType: input.contractType,
+          startDate: parseDate(input.startDate, 'startDate'),
+          endDate: parseOptionalDate(input.endDate, 'endDate') ?? null,
+          current: false,
+          ...pendingCreateStamps(userId),
+        },
+        include: {
+          employment: {
+            select: {
+              id: true,
+              matricule: true,
+              dateEng: true,
+              jobEng: true,
+              placeEng: true,
+              current: true,
+              workflowStatus: true,
+            },
+          },
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      contractType?: 'SPECIFIED' | 'UNSPECIFIED'
+      startDate?: string
+      endDate?: string | null
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    if (input.contractType !== undefined) {
+      await assertContractTypeProgression(
+        row.employmentId,
+        input.contractType,
+        id,
+      )
+    }
+    return withPrisma(() =>
+      prisma.tbl_emp_contract.update({
+        where: { id },
+        data: {
+          ...(input.contractType !== undefined
+            ? { contractType: input.contractType }
+            : {}),
+          ...(input.startDate !== undefined
+            ? { startDate: parseDate(input.startDate, 'startDate') }
+            : {}),
+          ...(input.endDate !== undefined
+            ? { endDate: parseOptionalDate(input.endDate, 'endDate') ?? null }
+            : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+        include: {
+          employment: {
+            select: {
+              id: true,
+              matricule: true,
+              dateEng: true,
+              jobEng: true,
+              placeEng: true,
+              current: true,
+              workflowStatus: true,
+            },
+          },
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      extraAssert: async () => {
+        if (row.contractType === 'SPECIFIED' && !row.endDate) {
+          throw new PersonnelWorkflowError(
+            'endDate is required to validate a specified contract',
+            400,
+          )
+        }
+        await assertContractTypeProgression(
+          row.employmentId,
+          row.contractType,
+          id,
+        )
+      },
+      extraData: { current: true },
+      supersede: (tx) =>
+        tx.tbl_emp_contract.updateMany({
+          where: {
+            employmentId: row.employmentId,
+            current: true,
+            NOT: { id },
+          },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) =>
+        tx.tbl_emp_contract.update({
+          where: { id },
+          data,
+          include: {
+            employment: {
+              select: {
+                id: true,
+                matricule: true,
+                dateEng: true,
+                jobEng: true,
+                placeEng: true,
+                current: true,
+                workflowStatus: true,
+              },
+            },
+          },
+        }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_contract.update({
+      where: { id },
+      data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+    })
+  },
+}
+
+export const familyInfoService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_family.findMany({
+      where: {
+        ...workflowFilter(query),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () => prisma.tbl_emp_family.findUnique({ where: { id } }),
+      'Family info',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      matricule: string
+      noSpouses?: number | null
+      noChildren?: number | null
+      relCode?: string | null
+      effectiveDate?: string | null
+    },
+  ) {
+    await requireEmployee(input.matricule)
+    return withPrisma(() =>
+      prisma.tbl_emp_family.create({
+        data: {
+          matricule: input.matricule,
+          noSpouses: input.noSpouses ?? null,
+          noChildren: input.noChildren ?? null,
+          relCode: input.relCode ?? null,
+          effectiveDate:
+            parseOptionalDate(input.effectiveDate, 'effectiveDate') ?? null,
+          current: false,
+          ...pendingCreateStamps(userId),
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      noSpouses?: number | null
+      noChildren?: number | null
+      relCode?: string | null
+      effectiveDate?: string | null
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    return withPrisma(() =>
+      prisma.tbl_emp_family.update({
+        where: { id },
+        data: {
+          ...(input.noSpouses !== undefined ? { noSpouses: input.noSpouses } : {}),
+          ...(input.noChildren !== undefined
+            ? { noChildren: input.noChildren }
+            : {}),
+          ...(input.relCode !== undefined ? { relCode: input.relCode } : {}),
+          ...(input.effectiveDate !== undefined
+            ? {
+                effectiveDate:
+                  parseOptionalDate(input.effectiveDate, 'effectiveDate') ??
+                  null,
+              }
+            : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      extraData: { current: true },
+      supersede: (tx) =>
+        tx.tbl_emp_family.updateMany({
+          where: { matricule: row.matricule, current: true, NOT: { id } },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) => tx.tbl_emp_family.update({ where: { id }, data }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_family.update({
+      where: { id },
+      data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+    })
+  },
+}
+
+export const kinInfoService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_nextkin.findMany({
+      where: {
+        ...workflowFilter(query),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () => prisma.tbl_emp_nextkin.findUnique({ where: { id } }),
+      'Next of kin',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      matricule: string
+      nextKinName?: string | null
+      nextKinRelation?: string | null
+      nextKinAddress?: string | null
+      effectiveDate: string
+    },
+  ) {
+    await requireEmployee(input.matricule)
+    return withPrisma(() =>
+      prisma.tbl_emp_nextkin.create({
+        data: {
+          matricule: input.matricule,
+          nextKinName: input.nextKinName ?? null,
+          nextKinRelation: input.nextKinRelation ?? null,
+          nextKinAddress: input.nextKinAddress ?? null,
+          effectiveDate: parseDate(input.effectiveDate, 'effectiveDate'),
+          current: false,
+          ...pendingCreateStamps(userId),
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      nextKinName?: string | null
+      nextKinRelation?: string | null
+      nextKinAddress?: string | null
+      effectiveDate?: string
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    return withPrisma(() =>
+      prisma.tbl_emp_nextkin.update({
+        where: { id },
+        data: {
+          ...(input.nextKinName !== undefined
+            ? { nextKinName: input.nextKinName }
+            : {}),
+          ...(input.nextKinRelation !== undefined
+            ? { nextKinRelation: input.nextKinRelation }
+            : {}),
+          ...(input.nextKinAddress !== undefined
+            ? { nextKinAddress: input.nextKinAddress }
+            : {}),
+          ...(input.effectiveDate !== undefined
+            ? { effectiveDate: parseDate(input.effectiveDate, 'effectiveDate') }
+            : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      extraData: { current: true },
+      supersede: (tx) =>
+        tx.tbl_emp_nextkin.updateMany({
+          where: { matricule: row.matricule, current: true, NOT: { id } },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) =>
+        tx.tbl_emp_nextkin.update({ where: { id }, data }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_nextkin.update({
+      where: { id },
+      data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+    })
+  },
+}
+
+export const departureService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_departure.findMany({
+      where: {
+        ...workflowFilter(query),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () => prisma.tbl_emp_departure.findUnique({ where: { id } }),
+      'Departure',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      matricule: string
+      dateDeparture?: string | null
+      reasonDeparture?: string | null
+      effectiveDate: string
+    },
+  ) {
+    await requireEmployee(input.matricule)
+    return withPrisma(() =>
+      prisma.tbl_emp_departure.create({
+        data: {
+          matricule: input.matricule,
+          dateDeparture:
+            parseOptionalDate(input.dateDeparture, 'dateDeparture') ?? null,
+          reasonDeparture: input.reasonDeparture ?? null,
+          effectiveDate: parseDate(input.effectiveDate, 'effectiveDate'),
+          current: false,
+          ...pendingCreateStamps(userId),
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      dateDeparture?: string | null
+      reasonDeparture?: string | null
+      effectiveDate?: string
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    return withPrisma(() =>
+      prisma.tbl_emp_departure.update({
+        where: { id },
+        data: {
+          ...(input.dateDeparture !== undefined
+            ? {
+                dateDeparture:
+                  parseOptionalDate(input.dateDeparture, 'dateDeparture') ??
+                  null,
+              }
+            : {}),
+          ...(input.reasonDeparture !== undefined
+            ? { reasonDeparture: input.reasonDeparture }
+            : {}),
+          ...(input.effectiveDate !== undefined
+            ? { effectiveDate: parseDate(input.effectiveDate, 'effectiveDate') }
+            : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      extraData: { current: true },
+      supersede: (tx) =>
+        tx.tbl_emp_departure.updateMany({
+          where: { matricule: row.matricule, current: true, NOT: { id } },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) =>
+        tx.tbl_emp_departure.update({ where: { id }, data }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_departure.update({
+      where: { id },
+      data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+    })
+  },
+}
+
+export const movementService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_movement.findMany({
+      where: {
+        ...workflowFilter(query),
+      },
+      include: {
+        From_unit: true,
+        To_unit: true,
+        TransferType: true,
+      },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () =>
+        prisma.tbl_emp_movement.findUnique({
+          where: { id },
+          include: {
+            From_unit: true,
+            To_unit: true,
+            TransferType: true,
+          },
+        }),
+      'Movement',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      matricule: string
+      Eff_date?: string | null
+      From_unit_id?: string | null
+      To_unit_id?: string | null
+      Position?: string | null
+      trans_type_id: number
+    },
+  ) {
+    await requireEmployee(input.matricule)
+    return withPrisma(() =>
+      prisma.tbl_emp_movement.create({
+        data: {
+          matricule: input.matricule,
+          Eff_date: parseOptionalDate(input.Eff_date, 'Eff_date') ?? null,
+          From_unit_id: input.From_unit_id ?? null,
+          To_unit_id: input.To_unit_id ?? null,
+          Position: input.Position ?? null,
+          trans_type_id: input.trans_type_id,
+          ...pendingCreateStamps(userId),
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      Eff_date?: string | null
+      From_unit_id?: string | null
+      To_unit_id?: string | null
+      Position?: string | null
+      trans_type_id?: number
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    return withPrisma(() =>
+      prisma.tbl_emp_movement.update({
+        where: { id },
+        data: {
+          ...(input.Eff_date !== undefined
+            ? { Eff_date: parseOptionalDate(input.Eff_date, 'Eff_date') ?? null }
+            : {}),
+          ...(input.From_unit_id !== undefined
+            ? { From_unit_id: input.From_unit_id }
+            : {}),
+          ...(input.To_unit_id !== undefined
+            ? { To_unit_id: input.To_unit_id }
+            : {}),
+          ...(input.Position !== undefined ? { Position: input.Position } : {}),
+          ...(input.trans_type_id !== undefined
+            ? { trans_type_id: input.trans_type_id }
+            : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      supersede: (tx) =>
+        tx.tbl_emp_movement.updateMany({
+          where: {
+            matricule: row.matricule,
+            workflowStatus: 'VALIDATED',
+            NOT: { id },
+          },
+          data: { workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) =>
+        tx.tbl_emp_movement.update({ where: { id }, data }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_movement.update({
+      where: { id },
+      data: rejectStamps(userId, review?.reviewNote),
+    })
+  },
+}
+
+export const classificationService = {
+  list(query: PersonnelListQuery) {
+    return prisma.tbl_emp_class.findMany({
+      where: {
+        ...workflowFilter(query),
+        ...(query.current !== undefined ? { current: query.current } : {}),
+      },
+      orderBy: [{ id: 'desc' }],
+    })
+  },
+  async get(id: number) {
+    return loadChild(
+      () => prisma.tbl_emp_class.findUnique({ where: { id } }),
+      'Classification',
+    )
+  },
+  async create(
+    userId: number,
+    input: {
+      matricule: string
+      category: string
+      echelon: string
+      zone?: number | null
+      class_type?: string | null
+      caption?: string | null
+      letter_ref?: string | null
+      letter_date?: string | null
+      effective_date: string
+      comment?: string | null
+    },
+  ) {
+    await requireEmployee(input.matricule)
+    await assertClassificationNotDemotion(
+      userId,
+      input.matricule,
+      input.category,
+      input.echelon,
+    )
+    return withPrisma(() =>
+      prisma.tbl_emp_class.create({
+        data: {
+          matricule: input.matricule,
+          category: input.category,
+          echelon: input.echelon,
+          zone: input.zone ?? null,
+          class_type: input.class_type ?? null,
+          caption: input.caption ?? null,
+          letter_ref: input.letter_ref ?? null,
+          letter_date:
+            parseOptionalDate(input.letter_date, 'letter_date') ?? null,
+          effective_date: parseDate(input.effective_date, 'effective_date'),
+          comment: input.comment ?? null,
+          current: false,
+          ...pendingCreateStamps(userId),
+        },
+      }),
+    )
+  },
+  async update(
+    userId: number,
+    id: number,
+    input: {
+      category?: string
+      echelon?: string
+      zone?: number | null
+      class_type?: string | null
+      caption?: string | null
+      letter_ref?: string | null
+      letter_date?: string | null
+      effective_date?: string
+      comment?: string | null
+    },
+  ) {
+    const row = await this.get(id)
+    assertCanEdit(row.workflowStatus)
+    await assertClassificationNotDemotion(
+      userId,
+      row.matricule,
+      input.category ?? row.category,
+      input.echelon ?? row.echelon,
+    )
+    return withPrisma(() =>
+      prisma.tbl_emp_class.update({
+        where: { id },
+        data: {
+          ...(input.category !== undefined ? { category: input.category } : {}),
+          ...(input.echelon !== undefined ? { echelon: input.echelon } : {}),
+          ...(input.zone !== undefined ? { zone: input.zone } : {}),
+          ...(input.class_type !== undefined
+            ? { class_type: input.class_type }
+            : {}),
+          ...(input.caption !== undefined ? { caption: input.caption } : {}),
+          ...(input.letter_ref !== undefined
+            ? { letter_ref: input.letter_ref }
+            : {}),
+          ...(input.letter_date !== undefined
+            ? {
+                letter_date:
+                  parseOptionalDate(input.letter_date, 'letter_date') ?? null,
+              }
+            : {}),
+          ...(input.effective_date !== undefined
+            ? {
+                effective_date: parseDate(
+                  input.effective_date,
+                  'effective_date',
+                ),
+              }
+            : {}),
+          ...(input.comment !== undefined ? { comment: input.comment } : {}),
+          ...editStamps(userId, row.workflowStatus),
+        },
+      }),
+    )
+  },
+  async validate(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    return supersedeAndValidate({
+      userId,
+      review,
+      row,
+      extraAssert: async () => {
+        if (!row.letter_ref?.trim() || !row.letter_date) {
+          throw new PersonnelWorkflowError(
+            'letter_ref and letter_date are required to validate a classification',
+            400,
+          )
+        }
+        await assertClassificationNotDemotion(
+          userId,
+          row.matricule,
+          row.category,
+          row.echelon,
+        )
+      },
+      extraData: { current: true },
+      supersede: (tx) =>
+        tx.tbl_emp_class.updateMany({
+          where: { matricule: row.matricule, current: true, NOT: { id } },
+          data: { current: false, workflowStatus: 'SUPERSEDED' },
+        }),
+      validate: (tx, data) =>
+        tx.tbl_emp_class.update({ where: { id }, data }),
+    })
+  },
+  async reject(userId: number, id: number, review?: ReviewInput) {
+    const row = await this.get(id)
+    assertCanReject(row.workflowStatus)
+    return prisma.tbl_emp_class.update({
+      where: { id },
+      data: { ...rejectStamps(userId, review?.reviewNote), current: false },
+    })
+  },
+}
+
+async function assertClassificationNotDemotion(
+  userId: number,
+  matricule: string,
+  category: string,
+  echelon: string,
+) {
+  const present = await prisma.tbl_emp_class.findFirst({
+    where: {
+      matricule,
+      current: true,
+      workflowStatus: 'VALIDATED',
+    },
+    select: { category: true, echelon: true },
+  })
+  if (!present) return
+
+  const presentResolved = await resolveCatAndEchIds(
+    formatProposedCat(present.category, present.echelon),
+  )
+  if (!presentResolved) return
+
+  const incomingResolved = await resolveCatAndEchIds(
+    formatProposedCat(category, echelon),
+  )
+  if (!incomingResolved) {
+    throw new PersonnelWorkflowError('Unknown category/echelon', 400)
+  }
+
+  const isDemotion =
+    incomingResolved.catId < presentResolved.catId ||
+    (incomingResolved.catId === presentResolved.catId &&
+      incomingResolved.echId < presentResolved.echId)
+
+  if (!isDemotion) return
+
+  const user = await prisma.tbl_users.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  })
+  const canDemote = user
+    ? (await getPermissionsForRole(user.role)).canDemoteClassification
+    : false
+  if (canDemote) return
+
+  throw new PersonnelWorkflowError(
+    'Classification cannot be lower than the present category/echelon (requires Demote classification permission)',
+    400,
+  )
+}

@@ -1,0 +1,53 @@
+{
+  "name": "@perf-appraisal-app/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/app.ts",
+      "import": "./src/app.ts",
+      "default": "./dist/app.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "node ../../node_modules/prisma/build/index.js generate",
+    "db:migrate": "node ../../node_modules/prisma/build/index.js migrate dev",
+    "db:push": "node ../../node_modules/prisma/build/index.js db push",
+    "seed:financial-years": "tsx src/scripts/seed-financial-years.ts",
+    "seed:roles": "tsx src/scripts/seed-roles.ts",
+    "seed:roles-table": "tsx src/scripts/seed-roles-table.ts",
+    "seed:decision-levels": "tsx src/scripts/seed-decision-levels.ts",
+    "seed:letter-cc": "tsx src/scripts/seed-letter-cc.ts",
+    "seed:admin": "tsx src/scripts/seed-admin.ts",
+    "seed:employees": "tsx src/scripts/seed-employees.ts",
+    "seed:employees:snapshot": "tsx src/scripts/seed-employees.ts --snapshot",
+    "seed:employees:validate": "tsx src/scripts/validate-imported-personnel.ts",
+    "seed:employees:fix-dates": "tsx src/scripts/fix-zero-dates.ts",
+    "db:add-allowance-tab-permissions": "tsx src/scripts/add-allowance-tab-permissions.ts",
+    "db:add-personnel-permission": "tsx src/scripts/add-personnel-permission.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@hono/zod-validator": "^0.4.3",
+    "@perf-appraisal-app/shared": "*",
+    "@prisma/adapter-mariadb": "^7.9.0",
+    "@prisma/client": "^7.9.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^16.4.7",
+    "hono": "^4.7.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.13.10",
+    "prisma": "^7.9.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

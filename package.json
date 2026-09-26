@@ -1,0 +1,20 @@
+{
+  "name": "perf-appraisal-app",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w @perf-appraisal-app/server",
+    "dev:desktop": "npm run dev -w @perf-appraisal-app/desktop",
+    "build:server": "npm run build -w @perf-appraisal-app/server",
+    "build:desktop": "npm run build -w @perf-appraisal-app/desktop",
+    "build:shared": "npm run build -w @perf-appraisal-app/shared",
+    "db:migrate": "npm run db:migrate -w @perf-appraisal-app/server",
+    "db:generate": "npm run db:generate -w @perf-appraisal-app/server",
+    "postinstall": "npm run build:shared"
+  },
+  "dependencies": {
+    "rc9": "^3.1.0"
+  }
+}
