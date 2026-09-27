@@ -1,5 +1,5 @@
 {
-  "name": "@perf-appraisal-app/server",
+  "name": "@personel-management-app/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,6 +16,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "pm2:start": "npm run build && pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop personel-management-server",
+    "pm2:restart": "npm run build && pm2 restart personel-management-server",
     "db:generate": "node ../../node_modules/prisma/build/index.js generate",
     "db:migrate": "node ../../node_modules/prisma/build/index.js migrate dev",
     "db:push": "node ../../node_modules/prisma/build/index.js db push",
@@ -35,7 +38,7 @@
   "dependencies": {
     "@hono/node-server": "^1.14.1",
     "@hono/zod-validator": "^0.4.3",
-    "@perf-appraisal-app/shared": "*",
+    "@personel-management-app/shared": "*",
     "@prisma/adapter-mariadb": "^7.9.0",
     "@prisma/client": "^7.9.0",
     "bcryptjs": "^3.0.3",

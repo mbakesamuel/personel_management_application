@@ -65,6 +65,7 @@ export const RolePermissionsSchema = z.object({
   canAllowanceMatrix: z.boolean(),
   canValidate: z.boolean(),
   canDemoteClassification: z.boolean(),
+  canEditValidated: z.boolean(),
   canLetterCc: z.boolean(),
   canDecisionMatrix: z.boolean(),
   canThroughOfficers: z.boolean(),
@@ -92,6 +93,7 @@ export const RoleDefinitionSchema = z.object({
   canAllowanceMatrix: z.boolean(),
   canValidate: z.boolean(),
   canDemoteClassification: z.boolean(),
+  canEditValidated: z.boolean(),
   canLetterCc: z.boolean(),
   canDecisionMatrix: z.boolean(),
   canThroughOfficers: z.boolean(),
@@ -117,6 +119,7 @@ export const RoleUpdateSchema = z.object({
   canAllowanceMatrix: z.boolean(),
   canValidate: z.boolean(),
   canDemoteClassification: z.boolean(),
+  canEditValidated: z.boolean(),
   canLetterCc: z.boolean(),
   canDecisionMatrix: z.boolean(),
   canThroughOfficers: z.boolean(),
@@ -548,6 +551,7 @@ export const EmployeeCreateSchema = z.object({
   placeBirth: z.string().trim().min(1).max(120),
   sex: z.string().trim().min(1).max(20),
   nationality: z.string().trim().max(120).nullable().optional(),
+  active: z.boolean().optional(),
 })
 
 export const EmployeeUpdateSchema = EmployeeCreateSchema.omit({

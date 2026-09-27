@@ -5,7 +5,7 @@ import type {
   SectionOption,
   UnitOption,
   User,
-} from "@perf-appraisal-app/shared";
+} from "@personel-management-app/shared";
 import { FileSpreadsheet, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
 import {
   useCallback,

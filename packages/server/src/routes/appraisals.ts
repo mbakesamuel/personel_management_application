@@ -9,7 +9,7 @@ import {
   ProposeCategorySchema,
   SalaryReviewExportQuerySchema,
   SalaryReviewImportBatchSchema,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { z } from 'zod'
 import type { AppVariables } from '../middleware/current-user.js'
 import {
@@ -34,7 +34,12 @@ import {
   FinancialYearClosedError,
   FinancialYearNotFoundError,
 } from '../services/financialyear.service.js'
-import { PersonnelNotFoundError } from '../services/matric-lookup.service.js'
+import { assertOperationalEmployee } from '../services/live-employee.service.js'
+import { PersonnelNotFoundError as MatricNotFoundError } from '../services/matric-lookup.service.js'
+import {
+  PersonnelNotFoundError,
+  PersonnelWorkflowError,
+} from '../services/personnel-workflow.js'
 import {
   CategoryParseError,
   proposeCategory,
@@ -55,6 +60,16 @@ function mapFinancialYearError(err: unknown) {
   }
   if (err instanceof FinancialYearClosedError) {
     return { status: 409 as const, message: err.message }
+  }
+  return null
+}
+
+function mapEmployeeError(err: unknown) {
+  if (err instanceof PersonnelWorkflowError) {
+    return { status: err.status, message: err.message }
+  }
+  if (err instanceof PersonnelNotFoundError) {
+    return { status: 404 as const, message: err.message }
   }
   return null
 }
@@ -109,6 +124,7 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
       const { matric, appyear, mode } = c.req.valid('query')
       try {
         await assertEmployeeInScope(user, matric)
+        await assertOperationalEmployee(matric)
         if (mode === 'create') {
           await assertFinancialYearOpen(appyear)
         }
@@ -118,12 +134,16 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
         }
         const fyErr = mapFinancialYearError(err)
         if (fyErr) return c.json({ error: fyErr.message }, fyErr.status)
+        const employeeErr = mapEmployeeError(err)
+        if (employeeErr) {
+          return c.json({ error: employeeErr.message }, employeeErr.status)
+        }
         throw err
       }
       try {
         return c.json(await lookupEmployeeByMatric(matric, appyear, mode))
       } catch (err) {
-        if (err instanceof PersonnelNotFoundError) {
+        if (err instanceof MatricNotFoundError) {
           return c.json({ error: err.message }, 404)
         }
         throw err
@@ -257,6 +277,7 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
     const body = c.req.valid('json')
     try {
       await assertEmployeeInScope(user, body.matric)
+      await assertOperationalEmployee(body.matric)
       await assertFinancialYearOpen(body.appyear)
     } catch (err) {
       if (err instanceof ForbiddenError) {
@@ -264,6 +285,10 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
       }
       const fyErr = mapFinancialYearError(err)
       if (fyErr) return c.json({ error: fyErr.message }, fyErr.status)
+      const employeeErr = mapEmployeeError(err)
+      if (employeeErr) {
+        return c.json({ error: employeeErr.message }, employeeErr.status)
+      }
       throw err
     }
     const detail = await upsertAppraisal(body)
@@ -279,9 +304,11 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
       const body = c.req.valid('json')
       try {
         await assertEmployeeInScope(user, body.matric)
+        await assertOperationalEmployee(body.matric)
         const existing = await getAppraisalDetail(id)
         if (existing) {
           await assertEmployeeInScope(user, existing.matric)
+          await assertOperationalEmployee(existing.matric)
           if (existing.appyear != null) {
             await assertFinancialYearOpen(existing.appyear)
           }
@@ -293,6 +320,10 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
         }
         const fyErr = mapFinancialYearError(err)
         if (fyErr) return c.json({ error: fyErr.message }, fyErr.status)
+        const employeeErr = mapEmployeeError(err)
+        if (employeeErr) {
+          return c.json({ error: employeeErr.message }, employeeErr.status)
+        }
         throw err
       }
       const detail = await upsertAppraisal({ ...body, id })
@@ -311,6 +342,7 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
       }
       try {
         await assertEmployeeInScope(user, existing.matric)
+        await assertOperationalEmployee(existing.matric)
         if (existing.appyear != null) {
           await assertFinancialYearOpen(existing.appyear)
         }
@@ -320,6 +352,10 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
         }
         const fyErr = mapFinancialYearError(err)
         if (fyErr) return c.json({ error: fyErr.message }, fyErr.status)
+        const employeeErr = mapEmployeeError(err)
+        if (employeeErr) {
+          return c.json({ error: employeeErr.message }, employeeErr.status)
+        }
         throw err
       }
       await deleteAppraisal(id)

@@ -2,7 +2,7 @@ import type {
   SalaryReviewExportResponse,
   SalaryReviewExportRow,
   SalaryReviewExportSection,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import * as XLSX from 'xlsx'
 import { formatDisplayDate } from './format-date'
 

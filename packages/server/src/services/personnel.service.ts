@@ -6,8 +6,8 @@ import type {
   EmployeeOption,
   EmployeeUpdateInput,
   WorkflowStatus,
-} from '@perf-appraisal-app/shared'
-import { formatProposedCat } from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
+import { formatProposedCat } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import { resolveCatAndEchIds } from './category-proposal.service.js'
 import { getPermissionsForRole } from './roles.service.js'
@@ -64,6 +64,7 @@ function mapEmployee(row: {
   placeBirth: string
   sex: string
   nationality: string | null
+  active: boolean
   workflowStatus: tbl_personnel_workflow_status
   createdAt: Date
   createdById: number
@@ -83,6 +84,7 @@ function mapEmployee(row: {
     placeBirth: row.placeBirth,
     sex: row.sex,
     nationality: row.nationality,
+    active: row.active,
     workflowStatus: row.workflowStatus as WorkflowStatus,
     createdAt: row.createdAt.toISOString(),
     createdById: row.createdById,
@@ -109,11 +111,47 @@ async function requireEmployee(matricule: string) {
 async function requireEmployment(employmentId: number) {
   const employment = await prisma.tbl_emp_employment.findUnique({
     where: { id: employmentId },
-    select: { id: true, matricule: true },
+    select: { id: true, matricule: true, workflowStatus: true },
   })
   if (!employment) {
     throw new PersonnelNotFoundError(
       `No employment found for id ${employmentId}`,
+    )
+  }
+  return employment
+}
+
+function assertSpecifiedHasEndDate(
+  contractType: 'SPECIFIED' | 'UNSPECIFIED',
+  endDate: string | null | undefined,
+) {
+  if (contractType === 'SPECIFIED' && !endDate?.trim()) {
+    throw new PersonnelWorkflowError(
+      'endDate is required for a specified contract',
+      400,
+    )
+  }
+}
+
+async function assertEmploymentAcceptsContractRevision(employmentId: number) {
+  const employment = await requireEmployment(employmentId)
+  if (employment.workflowStatus !== 'VALIDATED') {
+    throw new PersonnelWorkflowError(
+      'A contract revision can be added only after the employment is validated',
+      400,
+    )
+  }
+  const open = await prisma.tbl_emp_contract.findFirst({
+    where: {
+      employmentId,
+      workflowStatus: { in: ['PENDING', 'REJECTED'] },
+    },
+    select: { id: true },
+  })
+  if (open) {
+    throw new PersonnelWorkflowError(
+      'This employment already has a contract awaiting review',
+      409,
     )
   }
   return employment
@@ -176,11 +214,18 @@ async function withPrisma<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export const employeeService = {
-  async list(query: EmployeeListQuery): Promise<EmployeeListResponse> {
+  async list(
+    query: EmployeeListQuery,
+    matricules: string[] | null = null,
+  ): Promise<EmployeeListResponse> {
     const { page, limit, skip } = pagination(query)
+    if (matricules && matricules.length === 0) {
+      return { items: [], total: 0, page, limit }
+    }
     const search = query.search?.trim()
     const sortBy = query.sortBy ?? 'name'
     const where: Prisma.tbl_employeeWhereInput = {
+      ...(matricules ? { matricule: { in: matricules } } : {}),
       ...(query.workflowStatus ? { workflowStatus: query.workflowStatus } : {}),
       ...(search
         ? {
@@ -216,9 +261,13 @@ export const employeeService = {
     }
   },
 
-  async options() {
+  async options(matricules: string[] | null = null) {
+    if (matricules && matricules.length === 0) return []
     return prisma.tbl_employee.findMany({
-      where: { workflowStatus: 'VALIDATED' },
+      where: {
+        workflowStatus: 'VALIDATED',
+        ...(matricules ? { matricule: { in: matricules } } : {}),
+      },
       select: { matricule: true, name: true, firstname: true },
       orderBy: [{ name: 'asc' }, { matricule: 'asc' }],
     })
@@ -246,6 +295,7 @@ export const employeeService = {
           placeBirth: input.placeBirth.trim(),
           sex: input.sex.trim(),
           nationality: input.nationality?.trim() || null,
+          active: input.active ?? true,
           ...pendingCreateStamps(userId),
         },
       })
@@ -262,7 +312,14 @@ export const employeeService = {
       where: { matricule },
     })
     if (!existing) throw new PersonnelNotFoundError('Employee not found')
-    assertCanEdit(existing.workflowStatus)
+    const changesIdentity =
+      input.name !== undefined ||
+      input.firstname !== undefined ||
+      input.dateBirth !== undefined ||
+      input.placeBirth !== undefined ||
+      input.sex !== undefined ||
+      input.nationality !== undefined
+    if (changesIdentity) await assertCanEdit(userId, existing.workflowStatus)
     return withPrisma(async () => {
       const row = await prisma.tbl_employee.update({
         where: { matricule },
@@ -281,6 +338,7 @@ export const employeeService = {
           ...(input.nationality !== undefined
             ? { nationality: input.nationality?.trim() || null }
             : {}),
+          ...(input.active !== undefined ? { active: input.active } : {}),
           ...editStamps(userId, existing.workflowStatus),
         },
       })
@@ -410,7 +468,7 @@ export const identificationService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     return withPrisma(() =>
       prisma.tbl_emp_nat_iden.update({
         where: { id },
@@ -512,7 +570,7 @@ export const insuranceService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     return withPrisma(() =>
       prisma.tbl_emp_insurance.update({
         where: { id },
@@ -600,7 +658,7 @@ export const maritalStatusService = {
     input: { maritalStatusId?: string },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     return withPrisma(() =>
       prisma.tbl_emp_marital_status.update({
         where: { id },
@@ -673,7 +731,6 @@ export const employmentService = {
       placeEng: string
       profession?: string | null
       workStat?: string | null
-      unit?: string | null
       contract: {
         contractType: 'SPECIFIED' | 'UNSPECIFIED'
         startDate: string
@@ -711,7 +768,6 @@ export const employmentService = {
             placeEng: input.placeEng,
             profession: input.profession ?? null,
             workStat: input.workStat ?? null,
-            unit: input.unit ?? null,
             current: false,
             ...pendingCreateStamps(userId),
           },
@@ -745,7 +801,6 @@ export const employmentService = {
       placeEng?: string
       profession?: string | null
       workStat?: string | null
-      unit?: string | null
       contract?: {
         contractType: 'SPECIFIED' | 'UNSPECIFIED'
         startDate: string
@@ -754,7 +809,7 @@ export const employmentService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     if (
       input.contract?.contractType === 'SPECIFIED' &&
       !input.contract.endDate?.trim()
@@ -782,7 +837,6 @@ export const employmentService = {
             ...(input.workStat !== undefined
               ? { workStat: input.workStat }
               : {}),
-            ...(input.unit !== undefined ? { unit: input.unit } : {}),
             ...editStamps(userId, row.workflowStatus),
           },
         })
@@ -801,7 +855,7 @@ export const employmentService = {
             editable?.id,
           )
           if (editable) {
-            assertCanEdit(editable.workflowStatus)
+            await assertCanEdit(userId, editable.workflowStatus)
             await tx.tbl_emp_contract.update({
               where: { id: editable.id },
               data: {
@@ -984,7 +1038,10 @@ export const contractService = {
       endDate?: string | null
     },
   ) {
-    const employment = await requireEmployment(input.employmentId)
+    const employment = await assertEmploymentAcceptsContractRevision(
+      input.employmentId,
+    )
+    assertSpecifiedHasEndDate(input.contractType, input.endDate)
     await assertContractTypeProgression(employment.id, input.contractType)
     return withPrisma(() =>
       prisma.tbl_emp_contract.create({
@@ -1022,7 +1079,15 @@ export const contractService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
+    const nextType = input.contractType ?? row.contractType
+    const nextEnd =
+      input.endDate !== undefined
+        ? input.endDate
+        : row.endDate
+          ? row.endDate.toISOString()
+          : null
+    assertSpecifiedHasEndDate(nextType, nextEnd)
     if (input.contractType !== undefined) {
       await assertContractTypeProgression(
         row.employmentId,
@@ -1173,7 +1238,7 @@ export const familyInfoService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     return withPrisma(() =>
       prisma.tbl_emp_family.update({
         where: { id },
@@ -1272,7 +1337,7 @@ export const kinInfoService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     return withPrisma(() =>
       prisma.tbl_emp_nextkin.update({
         where: { id },
@@ -1370,7 +1435,7 @@ export const departureService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     return withPrisma(() =>
       prisma.tbl_emp_departure.update({
         where: { id },
@@ -1485,7 +1550,7 @@ export const movementService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     return withPrisma(() =>
       prisma.tbl_emp_movement.update({
         where: { id },
@@ -1611,7 +1676,7 @@ export const classificationService = {
     },
   ) {
     const row = await this.get(id)
-    assertCanEdit(row.workflowStatus)
+    await assertCanEdit(userId, row.workflowStatus)
     await assertClassificationNotDemotion(
       userId,
       row.matricule,

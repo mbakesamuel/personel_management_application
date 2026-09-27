@@ -1,5 +1,9 @@
-import { formatProposedCat } from '@perf-appraisal-app/shared'
+import { formatProposedCat } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
+import {
+  PersonnelNotFoundError,
+  PersonnelWorkflowError,
+} from './personnel-workflow.js'
 
 export type LiveEmployee = {
   matricule: string
@@ -13,7 +17,12 @@ export type LiveEmployee = {
   preCat: string | null
   codeUnit: string | null
   unitName: string | null
-  active: boolean
+}
+
+/** Employees that workflows may use: validated and still active. */
+const operationalEmployeeWhere = {
+  workflowStatus: 'VALIDATED' as const,
+  active: true,
 }
 
 export function formatEmployeeName(
@@ -82,10 +91,10 @@ export async function resolveLiveEmployees(
   const result = new Map<string, LiveEmployee>()
   if (ids.length === 0) return result
 
-  const [employees, classifications, movements, employments, departures] =
+  const [employees, classifications, movements, employments] =
     await Promise.all([
       prisma.tbl_employee.findMany({
-        where: { matricule: { in: ids }, workflowStatus: 'VALIDATED' },
+        where: { matricule: { in: ids }, ...operationalEmployeeWhere },
         select: {
           matricule: true,
           name: true,
@@ -134,16 +143,7 @@ export async function resolveLiveEmployees(
           matricule: true,
           dateEng: true,
           jobEng: true,
-          unit: true,
         },
-      }),
-      prisma.tbl_emp_departure.findMany({
-        where: {
-          matricule: { in: ids },
-          workflowStatus: 'VALIDATED',
-          current: true,
-        },
-        select: { matricule: true },
       }),
     ])
 
@@ -165,16 +165,10 @@ export async function resolveLiveEmployees(
   const employmentByMatric = new Map(
     employments.map((row) => [row.matricule, row]),
   )
-  const departed = new Set(departures.map((row) => row.matricule))
 
   const codeUnits = employees.map((employee) => {
     const movement = movementByMatric.get(employee.matricule)
-    const employment = employmentByMatric.get(employee.matricule)
-    return (
-      normalizeUnitCode(movement?.To_unit_id) ??
-      normalizeUnitCode(employment?.unit) ??
-      null
-    )
+    return normalizeUnitCode(movement?.To_unit_id)
   })
   const unitNames = await unitNameByCodes(
     codeUnits.filter((code): code is string => code != null),
@@ -184,9 +178,7 @@ export async function resolveLiveEmployees(
     const classification = classificationByMatric.get(employee.matricule)
     const movement = movementByMatric.get(employee.matricule)
     const employment = employmentByMatric.get(employee.matricule)
-    const codeUnit =
-      normalizeUnitCode(movement?.To_unit_id) ??
-      normalizeUnitCode(employment?.unit)
+    const codeUnit = normalizeUnitCode(movement?.To_unit_id)
     const category = classification?.category ?? null
     const echelon = classification?.echelon ?? null
 
@@ -202,7 +194,6 @@ export async function resolveLiveEmployees(
       preCat: preCatFrom(category, echelon),
       codeUnit,
       unitName: codeUnit ? (unitNames.get(codeUnit) ?? null) : null,
-      active: !departed.has(employee.matricule),
     })
   }
 
@@ -216,6 +207,36 @@ export async function resolveLiveEmployee(
   if (!trimmed) return null
   const map = await resolveLiveEmployees([trimmed])
   return map.get(trimmed) ?? null
+}
+
+/**
+ * Live employee for a workflow write. Missing, inactive, and not-yet-validated
+ * people are rejected so new screens can call this instead of querying employees.
+ */
+export async function assertOperationalEmployee(
+  matricule: string,
+): Promise<LiveEmployee> {
+  const trimmed = matricule.trim()
+  const live = trimmed ? await resolveLiveEmployee(trimmed) : null
+  if (live) return live
+
+  if (!trimmed) {
+    throw new PersonnelNotFoundError('Employee not found')
+  }
+
+  const row = await prisma.tbl_employee.findUnique({
+    where: { matricule: trimmed },
+    select: { active: true, workflowStatus: true },
+  })
+  if (!row) {
+    throw new PersonnelNotFoundError(
+      `No employee found for matricule ${trimmed}`,
+    )
+  }
+  if (!row.active) {
+    throw new PersonnelWorkflowError('Employee is inactive')
+  }
+  throw new PersonnelWorkflowError('Employee is not validated')
 }
 
 export async function findMatriculesForUnits(
@@ -232,36 +253,73 @@ export async function findMatriculesForUnits(
 
   const lookupIds = [...new Set(codes.flatMap(unitIdCandidates))]
 
-  const [movements, employments] = await Promise.all([
-    prisma.tbl_emp_movement.findMany({
-      where: {
-        workflowStatus: 'VALIDATED',
-        To_unit_id: { in: lookupIds },
-      },
-      select: { matricule: true },
-    }),
-    prisma.tbl_emp_employment.findMany({
-      where: {
-        workflowStatus: 'VALIDATED',
-        current: true,
-        unit: { in: lookupIds },
-      },
-      select: { matricule: true },
-    }),
-  ])
+  const movements = await prisma.tbl_emp_movement.findMany({
+    where: {
+      workflowStatus: 'VALIDATED',
+      To_unit_id: { in: lookupIds },
+    },
+    select: { matricule: true },
+  })
 
-  const matricules = [
-    ...new Set([
-      ...movements.map((row) => row.matricule),
-      ...employments.map((row) => row.matricule),
-    ]),
-  ]
+  const matricules = [...new Set(movements.map((row) => row.matricule))]
 
   if (matricules.length === 0) return []
 
   const live = await prisma.tbl_employee.findMany({
-    where: { matricule: { in: matricules }, workflowStatus: 'VALIDATED' },
+    where: { matricule: { in: matricules }, ...operationalEmployeeWhere },
     select: { matricule: true },
   })
   return live.map((row) => row.matricule)
+}
+
+/**
+ * Validated, active employees whose latest validated movement To unit
+ * matches one of the given units. An older posting does not count.
+ */
+export async function findMatriculesForCurrentUnits(
+  unitIds: string[],
+): Promise<string[]> {
+  const codes = [
+    ...new Set(
+      unitIds
+        .map((id) => normalizeUnitCode(id))
+        .filter((id): id is string => id != null),
+    ),
+  ]
+  if (codes.length === 0) return []
+
+  const lookupIds = [...new Set(codes.flatMap(unitIdCandidates))]
+  const candidates = await prisma.tbl_emp_movement.findMany({
+    where: {
+      workflowStatus: 'VALIDATED',
+      To_unit_id: { in: lookupIds },
+      employee: operationalEmployeeWhere,
+    },
+    distinct: ['matricule'],
+    select: { matricule: true },
+  })
+  if (candidates.length === 0) return []
+
+  const matricules = candidates.map((row) => row.matricule)
+  const movements = await prisma.tbl_emp_movement.findMany({
+    where: {
+      matricule: { in: matricules },
+      workflowStatus: 'VALIDATED',
+    },
+    orderBy: [{ Eff_date: 'desc' }, { id: 'desc' }],
+    select: { matricule: true, To_unit_id: true },
+  })
+
+  const latestToUnit = new Map<string, string | null>()
+  for (const row of movements) {
+    if (!latestToUnit.has(row.matricule)) {
+      latestToUnit.set(row.matricule, normalizeUnitCode(row.To_unit_id))
+    }
+  }
+
+  return matricules.filter((matricule) => {
+    const codeUnit = latestToUnit.get(matricule)
+    if (!codeUnit) return false
+    return codes.some((unitId) => unitCodesMatch(unitId, codeUnit))
+  })
 }

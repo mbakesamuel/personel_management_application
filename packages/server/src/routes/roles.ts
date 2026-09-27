@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { RoleCreateSchema, RoleUpdateSchema } from '@perf-appraisal-app/shared'
+import { RoleCreateSchema, RoleUpdateSchema } from '@personel-management-app/shared'
 import { z } from 'zod'
 import type { AppVariables } from '../middleware/current-user.js'
 import {

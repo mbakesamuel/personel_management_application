@@ -1,5 +1,5 @@
-import type { Jurisdiction, ScopeKind } from '@perf-appraisal-app/shared'
-import { SCOPE_KINDS } from '@perf-appraisal-app/shared'
+import type { Jurisdiction, ScopeKind } from '@personel-management-app/shared'
+import { SCOPE_KINDS } from '@personel-management-app/shared'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { createApiClient } from '../api/client'

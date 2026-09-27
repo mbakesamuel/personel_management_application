@@ -1,9 +1,6 @@
 import 'dotenv/config'
-import { defineConfig, env } from 'prisma/config'
-
-function databaseUrl() {
-  return env('DATABASE_URL').replace(/^['"]+|['"]+$/g, '')
-}
+import { defineConfig } from 'prisma/config'
+import { resolveDatabaseUrl } from './src/env/database-url.ts'
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
@@ -11,6 +8,6 @@ export default defineConfig({
     path: 'prisma/migrations',
   },
   datasource: {
-    url: databaseUrl(),
+    url: resolveDatabaseUrl(),
   },
 })

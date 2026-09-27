@@ -7,7 +7,7 @@ import type {
   UnitUpsertInput,
   ZoneOption,
   ZoneUpsertInput,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 

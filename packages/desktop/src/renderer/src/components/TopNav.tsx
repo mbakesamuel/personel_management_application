@@ -1,5 +1,5 @@
-import type { FinancialYear, User } from '@perf-appraisal-app/shared'
-import { fallbackLabelForRole } from '@perf-appraisal-app/shared'
+import type { FinancialYear, User } from '@personel-management-app/shared'
+import { fallbackLabelForRole } from '@personel-management-app/shared'
 import { PanelLeft, PanelLeftClose } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'

@@ -1,4 +1,4 @@
-import type { ServerConfig } from '@perf-appraisal-app/shared'
+import type { ServerConfig } from '@personel-management-app/shared'
 
 export type DesktopApi = {
   getServerConfig: () => Promise<ServerConfig>

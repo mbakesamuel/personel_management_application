@@ -6,7 +6,7 @@ import type {
   SkippedAppraisalLetter,
   UnitOption,
   User,
-} from "@perf-appraisal-app/shared";
+} from "@personel-management-app/shared";
 import { useCallback, useEffect, useState } from "react";
 import { createApiClient } from "../api/client";
 import { LOGO_DATA_URI, LOGO_SRC } from "../lib/logo";

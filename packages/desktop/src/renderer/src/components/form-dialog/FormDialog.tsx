@@ -46,7 +46,7 @@ export function FormDialog({
             <DialogDescription className="sr-only">{title}</DialogDescription>
           )}
         </DialogHeader>
-        <div className="px-6 py-4">{children}</div>
+        <div className="px-6 py-2">{children}</div>
       </DialogContent>
     </Dialog>
   )
@@ -68,7 +68,7 @@ export function FormDialogRow({
   return (
     <div
       className={cn(
-        'grid gap-2 py-2 sm:grid-cols-[9rem_1fr] sm:items-start sm:gap-4',
+        'grid gap-2 py-1 sm:grid-cols-[9rem_1fr] sm:items-start sm:gap-2',
         className,
       )}
     >
@@ -78,7 +78,9 @@ export function FormDialogRow({
       >
         {label}
       </Label>
-      <div className="min-w-0 space-y-1.5">{children}</div>
+      <div className="min-w-0 space-y-1.5 **:data-[slot=select-trigger]:w-full">
+        {children}
+      </div>
     </div>
   )
 }

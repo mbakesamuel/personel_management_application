@@ -4,7 +4,7 @@
  *   npm run seed:letter-cc
  */
 import 'dotenv/config'
-import { LETTER_CC } from '@perf-appraisal-app/shared'
+import { LETTER_CC } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 
 const tables = await prisma.$queryRawUnsafe<{ TABLE_NAME: string }[]>(

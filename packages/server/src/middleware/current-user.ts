@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono'
-import type { User } from '@perf-appraisal-app/shared'
+import type { User } from '@personel-management-app/shared'
 import { findUserById } from '../services/user-mapper.js'
 
 export type AppVariables = {

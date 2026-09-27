@@ -4,7 +4,7 @@ import type {
   AllowanceKeywordCreateInput,
   AllowanceKeywordLink,
   AllowanceKeywordUpdateInput,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 
 export class AllowanceMatrixNotFoundError extends Error {

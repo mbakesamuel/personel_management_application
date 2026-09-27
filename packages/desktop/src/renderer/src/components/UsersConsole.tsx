@@ -1,4 +1,4 @@
-import type { User } from "@perf-appraisal-app/shared";
+import type { User } from "@personel-management-app/shared";
 import {
   fallbackLabelForRole,
   fallbackScopeForRole,
@@ -11,7 +11,7 @@ import {
   type SectionOption,
   type UnitOption,
   type ZoneOption,
-} from "@perf-appraisal-app/shared";
+} from "@personel-management-app/shared";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createApiClient } from "../api/client";

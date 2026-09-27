@@ -1,4 +1,4 @@
-import type { AppraisalListItem } from '@perf-appraisal-app/shared'
+import type { AppraisalListItem } from '@personel-management-app/shared'
 import * as XLSX from 'xlsx'
 import { formatDisplayDate } from './format-date'
 

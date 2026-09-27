@@ -1,4 +1,4 @@
-import type { SalaryReviewImportResult } from '@perf-appraisal-app/shared'
+import type { SalaryReviewImportResult } from '@personel-management-app/shared'
 import { FileSpreadsheet, X } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import { createApiClient } from '../api/client'

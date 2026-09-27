@@ -3,7 +3,7 @@ import type {
   AppraisalLettersResponse,
   AppraisalListQuery,
   SkippedAppraisalLetter,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import {
   awardIncludesFinanceCc,
   fillTemplate,
@@ -11,9 +11,10 @@ import {
   normalizeAwardKey,
   parseCatEchelon,
   templateForAward,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import { resolveDecisionSignatory } from './decision.service.js'
+import { resolveLiveEmployees } from './live-employee.service.js'
 import { resolveLetterCcLabels } from './letter-cc.service.js'
 import { resolveSectionThroTitle } from './section-thro.service.js'
 
@@ -83,7 +84,7 @@ export async function buildAppraisalLetters(
   }
 
   const requestedMatric = query.matric?.trim() || null
-  const rows = await prisma.tbl_salaryreview.findMany({
+  const loaded = await prisma.tbl_salaryreview.findMany({
     where: {
       appyear,
       ...(requestedMatric ? { matric: requestedMatric } : {}),
@@ -92,6 +93,15 @@ export async function buildAppraisalLetters(
         : {}),
     },
     orderBy: [{ matric: 'asc' }, { id: 'asc' }],
+  })
+  const live = await resolveLiveEmployees(
+    loaded
+      .map((row) => row.matric?.trim())
+      .filter((matric): matric is string => Boolean(matric)),
+  )
+  const rows = loaded.filter((row) => {
+    const matric = row.matric?.trim()
+    return matric ? live.has(matric) : false
   })
 
   const sectionIds = [

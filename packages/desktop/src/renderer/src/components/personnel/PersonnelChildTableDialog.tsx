@@ -1,4 +1,4 @@
-import type { EmployeeOption, User, WorkflowStatus } from '@perf-appraisal-app/shared'
+import type { EmployeeOption, User, WorkflowStatus } from '@personel-management-app/shared'
 import { Check, Pencil, Plus, X, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createApiClient } from '../../api/client'
@@ -30,11 +30,15 @@ import { cn } from '@/lib/utils'
 import {
   asRecord,
   buildPayload,
+  canChangeEmployment,
   canMutateChild,
+  employmentDisplayStatus,
   emptyFormValues,
   formValuesFromRow,
-  normalizeEmploymentUnit,
-  pickLatestValidatedToUnitId,
+  isEmploymentDetailField,
+  openEmploymentContract,
+  resolveMovementFromUnit,
+  unitCodesMatch,
   rowId,
   rowWorkflowStatus,
   validateRequired,
@@ -43,6 +47,41 @@ import {
 } from './personnelChildTables'
 
 type LookupOption = { value: string; label: string }
+
+type UnitLookupRow = {
+  id: string
+  unitName?: string
+  unit_name?: string
+}
+
+function mapUnitOptions(rows: UnitLookupRow[]): LookupOption[] {
+  return rows
+    .filter((row) => row.id)
+    .map((row) => ({
+      value: row.id,
+      label: row.unitName ?? row.unit_name ?? row.id,
+    }))
+}
+
+function alignUnitValue(value: string, options: LookupOption[]): string {
+  if (!value) return ''
+  return (
+    options.find((option) => unitCodesMatch(option.value, value))?.value ??
+    value
+  )
+}
+
+function movementFieldOptions(
+  field: { name: string; lookup?: LookupKind },
+  lookups: Partial<Record<LookupKind, LookupOption[]>>,
+  fromUnitId: string,
+): LookupOption[] {
+  const options = field.lookup ? (lookups[field.lookup] ?? []) : []
+  if (field.name !== 'To_unit_id') return options
+  const from = fromUnitId.trim()
+  if (!from) return options
+  return options.filter((option) => !unitCodesMatch(option.value, from))
+}
 
 type PersonnelChildTableDialogProps = {
   open: boolean
@@ -126,17 +165,23 @@ export function PersonnelChildTableDialog({
   const [lookups, setLookups] = useState<Partial<Record<LookupKind, LookupOption[]>>>(
     {},
   )
+  const [lookupError, setLookupError] = useState<string | null>(null)
 
   const [rowDialogOpen, setRowDialogOpen] = useState(false)
   const [rowDialogMode, setRowDialogMode] = useState<'create' | 'edit'>('create')
   const [form, setForm] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [lockEmploymentFields, setLockEmploymentFields] = useState(false)
+  const [revisionContractId, setRevisionContractId] = useState<number | null>(
+    null,
+  )
 
   const [reviewOpen, setReviewOpen] = useState(false)
   const [reviewKind, setReviewKind] = useState<'validate' | 'reject'>('validate')
   const [reviewNote, setReviewNote] = useState('')
   const [reviewId, setReviewId] = useState<number | null>(null)
+  const [reviewResource, setReviewResource] = useState<string | null>(null)
 
   const canReview = currentUser.permissions.canValidate
   const selectedRow = useMemo(
@@ -179,7 +224,10 @@ export function PersonnelChildTableDialog({
     const needed = new Set(
       config.fields.map((f) => f.lookup).filter(Boolean) as LookupKind[],
     )
-    if (needed.size === 0) return
+    if (needed.size === 0) {
+      setLookupError(null)
+      return
+    }
 
     try {
       const client = await createApiClient()
@@ -233,19 +281,29 @@ export function PersonnelChildTableDialog({
         }
       }
 
-      if (needed.has('unit')) {
-        const res = await client.organization.units.$get()
-        if (res.ok) {
-          const data = (await res.json()) as Array<{
-            id: string
-            unitName?: string
-            unit_name?: string
-          }>
-          next.unit = data.map((r) => ({
-            value: r.id,
-            label: r.unitName ?? r.unit_name ?? r.id,
-          }))
+      if (needed.has('unit') || needed.has('unitAll')) {
+        const [scopedRes, allRes] = await Promise.all([
+          client.personnel.lookups.units.$get({ query: {} }),
+          client.personnel.lookups.units.$get({ query: { all: '1' } }),
+        ])
+        if (scopedRes.ok) {
+          next.unit = mapUnitOptions(
+            (await scopedRes.json()) as UnitLookupRow[],
+          )
         }
+        if (allRes.ok) {
+          next.unitAll = mapUnitOptions(
+            (await allRes.json()) as UnitLookupRow[],
+          )
+        }
+        if (!scopedRes.ok || !allRes.ok) {
+          const failed = !scopedRes.ok ? scopedRes : allRes
+          setLookupError(await readError(failed, 'Failed to load units'))
+        } else {
+          setLookupError(null)
+        }
+      } else {
+        setLookupError(null)
       }
 
       if (needed.has('contractType')) {
@@ -256,8 +314,12 @@ export function PersonnelChildTableDialog({
       }
 
       setLookups(next)
-    } catch {
-      // Lookups are best-effort; forms still open with empty selects.
+    } catch (err) {
+      if (needed.has('unit') || needed.has('unitAll')) {
+        setLookupError(
+          err instanceof Error ? err.message : 'Failed to load units',
+        )
+      }
     }
   }, [config, open])
 
@@ -269,6 +331,72 @@ export function PersonnelChildTableDialog({
     void loadLookups()
   }, [loadLookups])
 
+  function ensureUnitOption(option: { value: string; label: string }) {
+    setLookups((prev) => {
+      const units = prev.unit ?? []
+      if (units.some((item) => item.value === option.value)) return prev
+      return { ...prev, unit: [...units, option] }
+    })
+  }
+
+  useEffect(() => {
+    if (!rowDialogOpen || config?.id !== 'employee-movements') return
+
+    const scoped = lookups.unit ?? []
+    const allUnits = lookups.unitAll ?? []
+
+    if (rowDialogMode === 'create') {
+      const fromUnit = resolveMovementFromUnit(rows, scoped)
+      if (!fromUnit) return
+      setForm((prev) => {
+        const current = prev.From_unit_id?.trim() ?? ''
+        const from =
+          !current || unitCodesMatch(current, fromUnit.value)
+            ? fromUnit.value
+            : current
+        const to = prev.To_unit_id?.trim() ?? ''
+        const nextTo = from && to && unitCodesMatch(from, to) ? '' : to
+        if (from === current && nextTo === to) return prev
+        return { ...prev, From_unit_id: from, To_unit_id: nextTo }
+      })
+      ensureUnitOption(fromUnit)
+      return
+    }
+
+    const fromId = String(selectedRow?.From_unit_id ?? '').trim()
+    if (
+      fromId &&
+      !scoped.some((option) => unitCodesMatch(option.value, fromId))
+    ) {
+      const nested = asRecord(selectedRow?.From_unit)
+      const nameRaw = nested.unit_name
+      ensureUnitOption({
+        value: fromId,
+        label:
+          typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim() : fromId,
+      })
+    }
+
+    setForm((prev) => {
+      const from = alignUnitValue(prev.From_unit_id?.trim() ?? '', scoped)
+      const alignedTo = alignUnitValue(prev.To_unit_id?.trim() ?? '', allUnits)
+      const to =
+        from && alignedTo && unitCodesMatch(from, alignedTo) ? '' : alignedTo
+      if (from === (prev.From_unit_id ?? '') && to === (prev.To_unit_id ?? '')) {
+        return prev
+      }
+      return { ...prev, From_unit_id: from, To_unit_id: to }
+    })
+  }, [
+    rowDialogOpen,
+    rowDialogMode,
+    config?.id,
+    rows,
+    lookups.unit,
+    lookups.unitAll,
+    selectedRow,
+  ])
+
   async function openCreate() {
     if (!config) return
     if (config.id === 'employments' && rows.length > 0) {
@@ -277,31 +405,16 @@ export function PersonnelChildTableDialog({
     }
     setRowDialogMode('create')
     setEditingId(null)
+    setLockEmploymentFields(false)
+    setRevisionContractId(null)
     const values = emptyFormValues(config.fields)
 
     if (config.id === 'employee-movements') {
-      let fromUnit = pickLatestValidatedToUnitId(rows)
-      if (!fromUnit) {
-        try {
-          const client = await createApiClient()
-          const res = await client.personnel.employments.$get({
-            query: { matricule: employee.matricule, current: 'true' },
-          })
-          if (res.ok) {
-            const data = (await res.json()) as unknown
-            const list = Array.isArray(data) ? data.map(asRecord) : []
-            const current =
-              list.find(
-                (r) =>
-                  r.current === true && r.workflowStatus === 'VALIDATED',
-              ) ?? list[0]
-            fromUnit = normalizeEmploymentUnit(current?.unit)
-          }
-        } catch {
-          // Prefill is best-effort; form still opens.
-        }
+      const fromUnit = resolveMovementFromUnit(rows, lookups.unit ?? [])
+      if (fromUnit) {
+        values.From_unit_id = fromUnit.value
+        ensureUnitOption(fromUnit)
       }
-      if (fromUnit) values.From_unit_id = fromUnit
     }
 
     setForm(values)
@@ -313,10 +426,25 @@ export function PersonnelChildTableDialog({
     if (!config || !selectedRow) return
     const id = rowId(selectedRow)
     if (id == null) return
-    if (!canMutateChild(rowWorkflowStatus(selectedRow))) {
+    const status = rowWorkflowStatus(selectedRow)
+    const revisingContract =
+      config.id === 'employments' && status === 'VALIDATED'
+    if (config.id === 'employments') {
+      if (!canChangeEmployment(status)) {
+        setStatus('This employment cannot be changed')
+        return
+      }
+    } else if (
+      !canMutateChild(status, currentUser.permissions.canEditValidated)
+    ) {
       setStatus('Only PENDING or REJECTED rows can be edited')
       return
     }
+    const openContract = revisingContract
+      ? openEmploymentContract(selectedRow)
+      : null
+    setLockEmploymentFields(revisingContract)
+    setRevisionContractId(openContract ? rowId(openContract) : null)
     setRowDialogMode('edit')
     setEditingId(id)
     setForm(formValuesFromRow(config.fields, selectedRow, config.id))
@@ -325,15 +453,26 @@ export function PersonnelChildTableDialog({
   }
 
   function openReview(kind: 'validate' | 'reject') {
-    if (!selectedRow) return
+    if (!config || !selectedRow) return
     const id = rowId(selectedRow)
     if (id == null) return
-    if (rowWorkflowStatus(selectedRow) !== 'PENDING') {
+    const reviewingContract =
+      config.id === 'employments' &&
+      rowWorkflowStatus(selectedRow) === 'VALIDATED' &&
+      openEmploymentContract(selectedRow) != null
+    const targetId = reviewingContract
+      ? rowId(openEmploymentContract(selectedRow) ?? {})
+      : id
+    const targetStatus = reviewingContract
+      ? employmentDisplayStatus(selectedRow)
+      : rowWorkflowStatus(selectedRow)
+    if (targetId == null || targetStatus !== 'PENDING') {
       setStatus('Only PENDING rows can be validated or rejected')
       return
     }
     setReviewKind(kind)
-    setReviewId(id)
+    setReviewId(targetId)
+    setReviewResource(reviewingContract ? 'contracts' : config.id)
     setReviewNote('')
     setReviewOpen(true)
   }
@@ -352,7 +491,26 @@ export function PersonnelChildTableDialog({
       const api = getChildApi(client, config.id)
       if (!api) throw new Error('Child API unavailable')
 
-      if (rowDialogMode === 'create') {
+      if (lockEmploymentFields) {
+        if (editingId == null) throw new Error('Missing employment id')
+        const contractsApi = getChildApi(client, 'contracts')
+        if (!contractsApi) throw new Error('Contract API unavailable')
+        const contract = {
+          contractType: form.contractType?.trim() ?? '',
+          startDate: form.startDate?.trim() ?? '',
+          endDate: form.endDate?.trim() || null,
+        }
+        const res =
+          revisionContractId != null
+            ? await contractsApi[':id'].$patch({
+                param: { id: String(revisionContractId) },
+                json: contract,
+              })
+            : await contractsApi.$post({
+                json: { employmentId: editingId, ...contract },
+              })
+        if (!res.ok) throw new Error(await readError(res, 'Update failed'))
+      } else if (rowDialogMode === 'create') {
         const payload = buildPayload(
           config.fields,
           form,
@@ -385,7 +543,7 @@ export function PersonnelChildTableDialog({
     setStatus(null)
     try {
       const client = await createApiClient()
-      const api = getChildApi(client, config.id)
+      const api = getChildApi(client, reviewResource ?? config.id)
       if (!api) throw new Error('Child API unavailable')
       const endpoint =
         reviewKind === 'validate' ? api[':id'].validate : api[':id'].reject
@@ -419,7 +577,7 @@ export function PersonnelChildTableDialog({
         wide
         className="sm:max-w-4xl"
       >
-        <FormDialogError>{status}</FormDialogError>
+        <FormDialogError>{status ?? lookupError}</FormDialogError>
         <div className="flex min-h-72 gap-4">
           <div className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border">
             <Table>
@@ -453,7 +611,10 @@ export function PersonnelChildTableDialog({
                 ) : (
                   rows.map((row) => {
                     const id = rowId(row)
-                    const wf = rowWorkflowStatus(row)
+                    const wf =
+                      config.id === 'employments'
+                        ? employmentDisplayStatus(row)
+                        : rowWorkflowStatus(row)
                     return (
                       <TableRow
                         key={id ?? JSON.stringify(row)}
@@ -502,7 +663,7 @@ export function PersonnelChildTableDialog({
                 loading ||
                 !selectedRow ||
                 (config.id === 'employments' &&
-                  !canMutateChild(rowWorkflowStatus(selectedRow)))
+                  !canChangeEmployment(rowWorkflowStatus(selectedRow)))
               }
               onClick={openEdit}
             >
@@ -519,7 +680,9 @@ export function PersonnelChildTableDialog({
                   disabled={
                     loading ||
                     !selectedRow ||
-                    rowWorkflowStatus(selectedRow) !== 'PENDING'
+                    (config.id === 'employments'
+                      ? employmentDisplayStatus(selectedRow)
+                      : rowWorkflowStatus(selectedRow)) !== 'PENDING'
                   }
                   onClick={() => openReview('validate')}
                 >
@@ -534,7 +697,9 @@ export function PersonnelChildTableDialog({
                   disabled={
                     loading ||
                     !selectedRow ||
-                    rowWorkflowStatus(selectedRow) !== 'PENDING'
+                    (config.id === 'employments'
+                      ? employmentDisplayStatus(selectedRow)
+                      : rowWorkflowStatus(selectedRow)) !== 'PENDING'
                   }
                   onClick={() => openReview('reject')}
                 >
@@ -562,12 +727,14 @@ export function PersonnelChildTableDialog({
         title={
           rowDialogMode === 'create'
             ? `Add ${config.label}`
-            : `Change ${config.label}`
+            : lockEmploymentFields
+              ? 'Change contract'
+              : `Change ${config.label}`
         }
         subtitle={`${employee.matricule} — ${employee.name}`}
         wide={config.id === 'employee-classifications'}
       >
-        <FormDialogError>{formError}</FormDialogError>
+        <FormDialogError>{formError ?? lookupError}</FormDialogError>
         <div
           className={cn(
             config.id === 'employee-classifications' &&
@@ -575,7 +742,11 @@ export function PersonnelChildTableDialog({
           )}
         >
           {config.fields.map((field) => {
-            const options = field.lookup ? lookups[field.lookup] ?? [] : []
+            const options = movementFieldOptions(
+              field,
+              lookups,
+              form.From_unit_id ?? '',
+            )
             const endRequired =
               field.name === 'endDate' && form.contractType === 'SPECIFIED'
             const label =
@@ -583,12 +754,25 @@ export function PersonnelChildTableDialog({
                 ? `${field.label} *`
                 : field.label
             const isClassifications = config.id === 'employee-classifications'
+            const fieldLocked =
+              lockEmploymentFields && isEmploymentDetailField(field.name)
             const control =
               field.type === 'select' ? (
                 <Select
                   value={form[field.name] || undefined}
+                  disabled={fieldLocked}
                   onValueChange={(value) =>
-                    setForm((prev) => ({ ...prev, [field.name]: value }))
+                    setForm((prev) => {
+                      const next = { ...prev, [field.name]: value }
+                      if (
+                        field.name === 'From_unit_id' &&
+                        next.To_unit_id &&
+                        unitCodesMatch(next.To_unit_id, value)
+                      ) {
+                        next.To_unit_id = ''
+                      }
+                      return next
+                    })
                   }
                 >
                   <SelectTrigger id={`child-${field.name}`} className="w-full">
@@ -605,6 +789,7 @@ export function PersonnelChildTableDialog({
               ) : (
                 <Input
                   id={`child-${field.name}`}
+                  disabled={fieldLocked}
                   type={
                     field.type === 'date'
                       ? 'date'
@@ -658,7 +843,7 @@ export function PersonnelChildTableDialog({
         open={reviewOpen}
         onOpenChange={setReviewOpen}
         title={reviewKind === 'validate' ? 'Validate record' : 'Reject record'}
-        subtitle={config.label}
+        subtitle={reviewResource === 'contracts' ? 'Contract' : config.label}
       >
         <FormDialogRow label="Review note" htmlFor="child-review-note">
           <Textarea

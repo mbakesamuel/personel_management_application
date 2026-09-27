@@ -1,4 +1,4 @@
-import { parseCatEchCode } from '@perf-appraisal-app/shared'
+import { parseCatEchCode } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import { resolveLiveEmployees } from './live-employee.service.js'
 
@@ -52,10 +52,20 @@ export async function startSalaryReviewPost(appyear: number): Promise<{
 
   const rows = await prisma.tbl_perfappraisal.findMany({
     where: { appyear },
-    select: { id: true },
+    select: { id: true, matric: true },
     orderBy: { id: 'asc' },
   })
-  const ids = rows.map((r) => r.id)
+  const live = await resolveLiveEmployees(
+    rows
+      .map((row) => row.matric?.trim())
+      .filter((matric): matric is string => Boolean(matric)),
+  )
+  const ids = rows
+    .filter((row) => {
+      const matric = row.matric?.trim()
+      return matric ? live.has(matric) : false
+    })
+    .map((row) => row.id)
   return { appyear, ids, total: ids.length }
 }
 

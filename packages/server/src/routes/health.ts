@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { HealthResponse } from '@perf-appraisal-app/shared'
+import type { HealthResponse } from '@personel-management-app/shared'
 
 const health = new Hono().get('/', (c) => {
   const body: HealthResponse = { status: 'ok' }

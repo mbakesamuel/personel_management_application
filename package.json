@@ -1,5 +1,5 @@
 {
-  "name": "perf-appraisal-app",
+  "name": "personel-management-app",
   "private": true,
   "workspaces": [
     "packages/desktop",
@@ -7,13 +7,16 @@
     "packages/shared"
   ],
   "scripts": {
-    "dev:server": "npm run dev -w @perf-appraisal-app/server",
-    "dev:desktop": "npm run dev -w @perf-appraisal-app/desktop",
-    "build:server": "npm run build -w @perf-appraisal-app/server",
-    "build:desktop": "npm run build -w @perf-appraisal-app/desktop",
-    "build:shared": "npm run build -w @perf-appraisal-app/shared",
-    "db:migrate": "npm run db:migrate -w @perf-appraisal-app/server",
-    "db:generate": "npm run db:generate -w @perf-appraisal-app/server",
+    "dev:server": "npm run dev -w @personel-management-app/server",
+    "dev:desktop": "npm run dev -w @personel-management-app/desktop",
+    "build:server": "npm run build -w @personel-management-app/server",
+    "build:desktop": "npm run build -w @personel-management-app/desktop",
+    "build:shared": "npm run build -w @personel-management-app/shared",
+    "db:migrate": "npm run db:migrate -w @personel-management-app/server",
+    "db:generate": "npm run db:generate -w @personel-management-app/server",
+    "pm2:start": "npm run build -w @personel-management-app/server && pm2 start packages/server/ecosystem.config.cjs",
+    "pm2:restart": "npm run build -w @personel-management-app/server && pm2 restart personel-management-server",
+    "pm2:stop": "pm2 stop personel-management-server",
     "postinstall": "npm run build:shared"
   },
   "dependencies": {

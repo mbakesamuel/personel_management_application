@@ -8,8 +8,8 @@ import type {
   PositionKeyword,
   User,
   WorkflowStatus,
-} from '@perf-appraisal-app/shared'
-import { isAdmin } from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
+import { canEditWorkflowStatus, isAdmin } from '@personel-management-app/shared'
 import {
   Banknote,
   Check,
@@ -163,7 +163,7 @@ const ADD_LABEL: Record<TabKey, string> = {
   allocations: 'Allocation',
 }
 
-function canMutate(status: WorkflowStatus) {
+function canDelete(status: WorkflowStatus) {
   return status === 'PENDING' || status === 'REJECTED'
 }
 
@@ -1004,7 +1004,11 @@ export function AllowancesConsole({
     viewState != null && viewState.row.workflowStatus === 'PENDING'
   const canReviewWorkflow = currentUser.permissions.canValidate
   const viewEditable =
-    viewState != null && canMutate(viewState.row.workflowStatus)
+    viewState != null &&
+    canEditWorkflowStatus(
+      viewState.row.workflowStatus,
+      currentUser.permissions.canEditValidated,
+    )
   const canUseCurrentTab = allowedTabs.includes(tab)
 
   useEffect(() => {
@@ -1177,8 +1181,11 @@ export function AllowancesConsole({
                   </TableCell>
                   <RowActions
                     disabled={loading}
-                    canEdit={canMutate(row.workflowStatus)}
-                    canDelete={canMutate(row.workflowStatus)}
+                    canEdit={canEditWorkflowStatus(
+                      row.workflowStatus,
+                      currentUser.permissions.canEditValidated,
+                    )}
+                    canDelete={canDelete(row.workflowStatus)}
                     canReview={
                       row.workflowStatus === 'PENDING' && canReviewWorkflow
                     }
@@ -1275,8 +1282,11 @@ export function AllowancesConsole({
                   </TableCell>
                   <RowActions
                     disabled={loading}
-                    canEdit={canMutate(row.workflowStatus)}
-                    canDelete={canMutate(row.workflowStatus)}
+                    canEdit={canEditWorkflowStatus(
+                      row.workflowStatus,
+                      currentUser.permissions.canEditValidated,
+                    )}
+                    canDelete={canDelete(row.workflowStatus)}
                     canReview={
                       row.workflowStatus === 'PENDING' && canReviewWorkflow
                     }
@@ -1405,8 +1415,11 @@ export function AllowancesConsole({
                   </TableCell>
                   <RowActions
                     disabled={loading}
-                    canEdit={canMutate(row.workflowStatus)}
-                    canDelete={canMutate(row.workflowStatus)}
+                    canEdit={canEditWorkflowStatus(
+                      row.workflowStatus,
+                      currentUser.permissions.canEditValidated,
+                    )}
+                    canDelete={canDelete(row.workflowStatus)}
                     canReview={
                       row.workflowStatus === 'PENDING' && canReviewWorkflow
                     }
@@ -1529,8 +1542,11 @@ export function AllowancesConsole({
                   </TableCell>
                   <RowActions
                     disabled={loading}
-                    canEdit={canMutate(row.workflowStatus)}
-                    canDelete={canMutate(row.workflowStatus)}
+                    canEdit={canEditWorkflowStatus(
+                      row.workflowStatus,
+                      currentUser.permissions.canEditValidated,
+                    )}
+                    canDelete={canDelete(row.workflowStatus)}
                     canReview={
                       row.workflowStatus === 'PENDING' && canReviewWorkflow
                     }

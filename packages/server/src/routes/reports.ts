@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import {
   AllocationLetterListQuerySchema,
   AppraisalListQuerySchema,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import type { AppVariables } from '../middleware/current-user.js'
 import {
   ForbiddenError,

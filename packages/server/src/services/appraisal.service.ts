@@ -8,7 +8,7 @@ import type {
   MatricLookupResult,
   SectionOption,
   UnitOption,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import {
   findMatriculesForUnits,
@@ -158,13 +158,15 @@ export async function listAppraisals(
 
   const awardById = new Map(awards.map((a) => [a.id, a.award ?? null]))
 
-  const items: AppraisalListItem[] = rows.map((row) => {
+  const items: AppraisalListItem[] = []
+  for (const row of rows) {
     const live = row.matric ? people.get(row.matric) : undefined
-    return {
+    if (!live) continue
+    items.push({
       id: row.id,
       appyear: row.appyear,
       matric: row.matric,
-      names: live?.names ?? null,
+      names: live.names,
       dateLmerit: toDateOnly(row.date_lmerit),
       dateLstat: toDateOnly(row.date_lstat),
       dateLpro: toDateOnly(row.date_lpro),
@@ -174,9 +176,9 @@ export async function listAppraisals(
       award: row.tbl_award_id != null ? (awardById.get(row.tbl_award_id) ?? null) : null,
       awardId: row.tbl_award_id,
       sectionId: null,
-      sectionName: live?.unitName ?? null,
-    }
-  })
+      sectionName: live.unitName,
+    })
+  }
 
   return { items, total: items.length }
 }

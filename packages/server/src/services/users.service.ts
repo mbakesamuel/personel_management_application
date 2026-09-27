@@ -1,4 +1,4 @@
-import type { User, UserUpsertInput } from '@perf-appraisal-app/shared'
+import type { User, UserUpsertInput } from '@personel-management-app/shared'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 import {

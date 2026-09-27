@@ -2,7 +2,7 @@ import type {
   SalaryReviewImportBatchInput,
   SalaryReviewImportResult,
   SalaryReviewImportRow,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 
 function emptyToNull(value: string | null | undefined): string | null {

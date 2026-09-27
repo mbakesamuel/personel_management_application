@@ -1,4 +1,4 @@
-import type { FinancialYear, User } from '@perf-appraisal-app/shared'
+import type { FinancialYear, User } from '@personel-management-app/shared'
 import {
   FolderOpen,
   FolderX,

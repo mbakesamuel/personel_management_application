@@ -5,7 +5,7 @@ import type {
   RolePermissions,
   RoleUpdateInput,
   ScopeKind,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import {
   defaultPermissionsForRole,
   fallbackLabelForRole,
@@ -13,7 +13,7 @@ import {
   isBuiltinRole,
   isValidRoleCode,
   ROLES,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 import {
@@ -60,6 +60,7 @@ async function mapRoleRow(row: {
   can_allowance_matrix: boolean
   can_validate: boolean
   can_demote_classification: boolean
+  can_edit_validated: boolean
   can_letter_cc: boolean
   can_decision_matrix: boolean
   can_through_officers: boolean
@@ -87,6 +88,7 @@ async function mapRoleRow(row: {
     canAllowanceMatrix: row.can_allowance_matrix,
     canValidate: row.can_validate,
     canDemoteClassification: row.can_demote_classification,
+    canEditValidated: row.can_edit_validated,
     canLetterCc: row.can_letter_cc,
     canDecisionMatrix: row.can_decision_matrix,
     canThroughOfficers: row.can_through_officers,
@@ -133,6 +135,7 @@ export async function getPermissionsForRole(
     canAllowanceMatrix: def.canAllowanceMatrix,
     canValidate: def.canValidate,
     canDemoteClassification: def.canDemoteClassification,
+    canEditValidated: def.canEditValidated,
     canLetterCc: def.canLetterCc,
     canDecisionMatrix: def.canDecisionMatrix,
     canThroughOfficers: def.canThroughOfficers,
@@ -230,6 +233,7 @@ export async function createRole(
         can_allowance_matrix: input.canAllowanceMatrix,
         can_validate: input.canValidate,
         can_demote_classification: input.canDemoteClassification,
+        can_edit_validated: input.canEditValidated,
         can_letter_cc: input.canLetterCc,
         can_decision_matrix: input.canDecisionMatrix,
         can_through_officers: input.canThroughOfficers,
@@ -282,6 +286,7 @@ export async function updateRole(
       can_allowance_matrix: input.canAllowanceMatrix,
       can_validate: input.canValidate,
       can_demote_classification: input.canDemoteClassification,
+      can_edit_validated: input.canEditValidated,
       can_letter_cc: input.canLetterCc,
       can_decision_matrix: input.canDecisionMatrix,
       can_through_officers: input.canThroughOfficers,
@@ -306,6 +311,7 @@ export async function updateRole(
       can_allowance_matrix: input.canAllowanceMatrix,
       can_validate: input.canValidate,
       can_demote_classification: input.canDemoteClassification,
+      can_edit_validated: input.canEditValidated,
       can_letter_cc: input.canLetterCc,
       can_decision_matrix: input.canDecisionMatrix,
       can_through_officers: input.canThroughOfficers,

@@ -3,8 +3,9 @@ import type {
   AppraisalSummaryResponse,
   AppraisalSummaryRow,
   AppraisalSummarySection,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
+import { resolveLiveEmployees } from './live-employee.service.js'
 
 function toDateOnly(value: Date | null | undefined): string | null {
   if (!value) return null
@@ -80,9 +81,18 @@ export async function buildAppraisalSummary(
     where.tbl_section_id = { in: allowedSections }
   }
 
-  const rows = await prisma.tbl_salaryreview.findMany({
+  const loaded = await prisma.tbl_salaryreview.findMany({
     where,
     orderBy: [{ tbl_section_id: 'asc' }, { matric: 'asc' }],
+  })
+  const live = await resolveLiveEmployees(
+    loaded
+      .map((row) => row.matric?.trim())
+      .filter((matric): matric is string => Boolean(matric)),
+  )
+  const rows = loaded.filter((row) => {
+    const matric = row.matric?.trim()
+    return matric ? live.has(matric) : false
   })
 
   if (rows.length === 0) {

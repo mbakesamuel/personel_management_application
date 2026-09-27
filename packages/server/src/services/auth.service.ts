@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import type { User } from '@perf-appraisal-app/shared'
+import type { User } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import { mapDbUser } from './user-mapper.js'
 

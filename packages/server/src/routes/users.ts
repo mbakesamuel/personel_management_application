@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import {
   SetUserFinancialYearSchema,
   UserUpsertSchema,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { z } from 'zod'
 import type { AppVariables } from '../middleware/current-user.js'
 import {

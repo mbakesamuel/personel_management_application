@@ -4,7 +4,7 @@ import type {
   SectionOption,
   UnitOption,
   User,
-} from "@perf-appraisal-app/shared";
+} from "@personel-management-app/shared";
 import { useCallback, useEffect, useState } from "react";
 import { createApiClient } from "../api/client";
 import { ReportPreviewConsole } from "./ReportPreviewConsole";

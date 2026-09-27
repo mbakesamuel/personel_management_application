@@ -3,7 +3,7 @@ import type {
   SectionThroBatchInput,
   SectionThroListQuery,
   SectionThroUpsertInput,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 

@@ -76,6 +76,7 @@ export type RolePermissions = {
   canAllowanceMatrix: boolean
   canValidate: boolean
   canDemoteClassification: boolean
+  canEditValidated: boolean
   canLetterCc: boolean
   canDecisionMatrix: boolean
   canThroughOfficers: boolean
@@ -137,6 +138,15 @@ export function isAdmin(role: Role): boolean {
   return role === 'ADMINISTRATOR'
 }
 
+/** Pending and rejected rows are always editable. Validated rows require the permission. */
+export function canEditWorkflowStatus(
+  status: 'PENDING' | 'VALIDATED' | 'REJECTED' | 'SUPERSEDED',
+  canEditValidated: boolean,
+): boolean {
+  if (status === 'PENDING' || status === 'REJECTED') return true
+  return status === 'VALIDATED' && canEditValidated
+}
+
 export function defaultPermissionsForRole(role: Role): RolePermissions {
   if (isAdmin(role)) {
     return {
@@ -153,6 +163,7 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
       canAllowanceMatrix: true,
       canValidate: true,
       canDemoteClassification: true,
+      canEditValidated: true,
       canLetterCc: true,
       canDecisionMatrix: true,
       canThroughOfficers: true,
@@ -176,6 +187,7 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
     canAllowanceMatrix: false,
     canValidate: false,
     canDemoteClassification: false,
+    canEditValidated: false,
     canLetterCc: false,
     canDecisionMatrix: false,
     canThroughOfficers: false,

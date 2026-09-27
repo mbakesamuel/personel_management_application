@@ -5,8 +5,8 @@ import type {
   DecisionLevel,
   DecisionLevelCode,
   DecisionScope,
-} from '@perf-appraisal-app/shared'
-import { DECISION_LEVEL_CODES, DECISION_SCOPES } from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
+import { DECISION_LEVEL_CODES, DECISION_SCOPES } from '@personel-management-app/shared'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 

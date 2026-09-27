@@ -114,6 +114,6 @@ MySQL only needs to run on the server machine; desktop clients never connect to 
 
 | Package | Name |
 | --- | --- |
-| Shared | `@perf-appraisal-app/shared` |
-| Server | `@perf-appraisal-app/server` |
-| Desktop | `@perf-appraisal-app/desktop` |
+| Shared | `@personel-management-app/shared` |
+| Server | `@personel-management-app/server` |
+| Desktop | `@personel-management-app/desktop` |

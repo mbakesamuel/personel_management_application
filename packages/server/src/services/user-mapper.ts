@@ -1,4 +1,4 @@
-import type { User } from '@perf-appraisal-app/shared'
+import type { User } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import { getRoleDefinition } from './roles.service.js'
 
@@ -38,6 +38,7 @@ export async function mapDbUser(row: {
       canAllowanceMatrix: def.canAllowanceMatrix,
       canValidate: def.canValidate,
       canDemoteClassification: def.canDemoteClassification,
+      canEditValidated: def.canEditValidated,
       canLetterCc: def.canLetterCc,
       canDecisionMatrix: def.canDecisionMatrix,
       canThroughOfficers: def.canThroughOfficers,

@@ -5,7 +5,7 @@ import {
   EmployeeListQuerySchema,
   EmployeeUpdateSchema,
   WorkflowReviewSchema,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { z } from 'zod'
 import type { AppVariables } from '../middleware/current-user.js'
 import {
@@ -28,9 +28,12 @@ import {
   PersonnelWorkflowError,
 } from '../services/personnel-workflow.js'
 import {
+  assertEmployeeInScope,
   ForbiddenError,
   requirePermission,
+  unitIdsForUser,
 } from '../services/authz.service.js'
+import { findMatriculesForCurrentUnits } from '../services/live-employee.service.js'
 
 const ReviewSchema = WorkflowReviewSchema
 
@@ -96,7 +99,6 @@ const EmploymentCreateSchema = z.object({
   placeEng: z.string().min(1),
   profession: optionalString,
   workStat: optionalString,
-  unit: optionalString,
   contract: z.object({
     contractType: z.enum(['SPECIFIED', 'UNSPECIFIED']),
     startDate: z.string().min(1),
@@ -110,7 +112,6 @@ const EmploymentUpdateSchema = z
     placeEng: z.string().min(1).optional(),
     profession: optionalString,
     workStat: optionalString,
-    unit: optionalString,
     contract: z
       .object({
         contractType: z.enum(['SPECIFIED', 'UNSPECIFIED']),
@@ -230,6 +231,48 @@ function actorId(c: { get: (key: 'currentUser') => { id: number } }) {
   return c.get('currentUser').id
 }
 
+function readMatricule(row: unknown): string | null {
+  if (!row || typeof row !== 'object') return null
+  const record = row as { matricule?: unknown; employment?: unknown }
+  if (typeof record.matricule === 'string' && record.matricule.trim()) {
+    return record.matricule.trim()
+  }
+  if (record.employment && typeof record.employment === 'object') {
+    const nested = (record.employment as { matricule?: unknown }).matricule
+    if (typeof nested === 'string' && nested.trim()) return nested.trim()
+  }
+  return null
+}
+
+async function matriculeForChildCreate(data: unknown): Promise<string | null> {
+  const direct = readMatricule(data)
+  if (direct) return direct
+  if (!data || typeof data !== 'object' || !('employmentId' in data)) return null
+  const employmentId = (data as { employmentId?: unknown }).employmentId
+  if (typeof employmentId !== 'number') return null
+  const employment = await employmentService.get(employmentId)
+  return readMatricule(employment)
+}
+
+async function matriculesInScope(user: AppVariables['currentUser']) {
+  const allowed = await unitIdsForUser(user)
+  if (allowed === null) return null
+  return findMatriculesForCurrentUnits(allowed)
+}
+
+async function assertChildById(
+  user: AppVariables['currentUser'],
+  id: number,
+  get: (id: number) => Promise<unknown>,
+) {
+  const row = await get(id)
+  const matricule = readMatricule(row)
+  if (!matricule) {
+    throw new ForbiddenError('Employee is outside your oversight scope')
+  }
+  await assertEmployeeInScope(user, matricule)
+}
+
 function childRouter<TCreate, TUpdate>(opts: {
   list: (query: z.infer<typeof ListQuerySchema>) => Promise<unknown>
   get: (id: number) => Promise<unknown>
@@ -250,44 +293,69 @@ function childRouter<TCreate, TUpdate>(opts: {
 }) {
   return new Hono<{ Variables: AppVariables }>()
     .get('/', zValidator('query', ListQuerySchema), async (c) =>
-      handle(c, () => opts.list(c.req.valid('query'))),
+      handle(c, async () => {
+        const query = c.req.valid('query')
+        const user = c.get('currentUser')
+        if (query.matricule) {
+          await assertEmployeeInScope(user, query.matricule)
+          return opts.list(query)
+        }
+        const matricules = await matriculesInScope(user)
+        const rows = await opts.list(query)
+        if (matricules === null || !Array.isArray(rows)) return rows
+        const allowed = new Set(matricules)
+        return rows.filter((row) => {
+          const matricule = readMatricule(row)
+          return matricule != null && allowed.has(matricule)
+        })
+      }),
     )
     .post('/', zValidator('json', opts.createSchema), async (c) =>
-      handle(c, () => opts.create(actorId(c), c.req.valid('json')), 201),
+      handle(c, async () => {
+        const data = c.req.valid('json')
+        const matricule = await matriculeForChildCreate(data)
+        if (!matricule) {
+          throw new ForbiddenError('Employee is outside your oversight scope')
+        }
+        await assertEmployeeInScope(c.get('currentUser'), matricule)
+        return opts.create(actorId(c), data)
+      }, 201),
     )
     .post('/:id/validate', zValidator('param', IdParam), async (c) =>
       handle(c, async () => {
         await requirePermission(c.get('currentUser'), 'canValidate')
+        const id = c.req.valid('param').id
+        await assertChildById(c.get('currentUser'), id, opts.get)
         const body = await c.req.json().catch(() => ({}))
-        return opts.validate(
-          actorId(c),
-          c.req.valid('param').id,
-          ReviewSchema.parse(body),
-        )
+        return opts.validate(actorId(c), id, ReviewSchema.parse(body))
       }),
     )
     .post('/:id/reject', zValidator('param', IdParam), async (c) =>
       handle(c, async () => {
         await requirePermission(c.get('currentUser'), 'canValidate')
+        const id = c.req.valid('param').id
+        await assertChildById(c.get('currentUser'), id, opts.get)
         const body = await c.req.json().catch(() => ({}))
-        return opts.reject(
-          actorId(c),
-          c.req.valid('param').id,
-          ReviewSchema.parse(body),
-        )
+        return opts.reject(actorId(c), id, ReviewSchema.parse(body))
       }),
     )
     .get('/:id', zValidator('param', IdParam), async (c) =>
-      handle(c, () => opts.get(c.req.valid('param').id)),
+      handle(c, async () => {
+        const id = c.req.valid('param').id
+        await assertChildById(c.get('currentUser'), id, opts.get)
+        return opts.get(id)
+      }),
     )
     .patch(
       '/:id',
       zValidator('param', IdParam),
       zValidator('json', opts.updateSchema),
       async (c) =>
-        handle(c, () =>
-          opts.update(actorId(c), c.req.valid('param').id, c.req.valid('json')),
-        ),
+        handle(c, async () => {
+          const id = c.req.valid('param').id
+          await assertChildById(c.get('currentUser'), id, opts.get)
+          return opts.update(actorId(c), id, c.req.valid('json'))
+        }),
     )
 }
 
@@ -304,11 +372,28 @@ const employees = new Hono<{ Variables: AppVariables }>()
     await next()
   })
   .get('/', zValidator('query', EmployeeListQuerySchema), async (c) =>
-    handle(c, () => employeeService.list(c.req.valid('query'))),
+    handle(c, async () =>
+      employeeService.list(
+        c.req.valid('query'),
+        await matriculesInScope(c.get('currentUser')),
+      ),
+    ),
   )
-  .get('/options', async (c) => handle(c, () => employeeService.options()))
+  .get('/options', async (c) =>
+    handle(c, async () =>
+      employeeService.options(await matriculesInScope(c.get('currentUser'))),
+    ),
+  )
   .post('/', zValidator('json', EmployeeCreateSchema), async (c) =>
-    handle(c, () => employeeService.create(actorId(c), c.req.valid('json')), 201),
+    handle(c, async () => {
+      const allowed = await unitIdsForUser(c.get('currentUser'))
+      if (allowed !== null) {
+        throw new ForbiddenError(
+          'Only unrestricted users can register an employee who is not yet posted',
+        )
+      }
+      return employeeService.create(actorId(c), c.req.valid('json'))
+    }, 201),
   )
   .post(
     '/:matricule/validate',
@@ -317,9 +402,11 @@ const employees = new Hono<{ Variables: AppVariables }>()
     async (c) =>
       handle(c, async () => {
         await requirePermission(c.get('currentUser'), 'canValidate')
+        const { matricule } = c.req.valid('param')
+        await assertEmployeeInScope(c.get('currentUser'), matricule)
         return employeeService.validate(
           actorId(c),
-          c.req.valid('param').matricule,
+          matricule,
           c.req.valid('json'),
         )
       }),
@@ -331,28 +418,36 @@ const employees = new Hono<{ Variables: AppVariables }>()
     async (c) =>
       handle(c, async () => {
         await requirePermission(c.get('currentUser'), 'canValidate')
+        const { matricule } = c.req.valid('param')
+        await assertEmployeeInScope(c.get('currentUser'), matricule)
         return employeeService.reject(
           actorId(c),
-          c.req.valid('param').matricule,
+          matricule,
           c.req.valid('json'),
         )
       }),
   )
   .get('/:matricule', zValidator('param', MatriculeParam), async (c) =>
-    handle(c, () => employeeService.get(c.req.valid('param').matricule)),
+    handle(c, async () => {
+      const { matricule } = c.req.valid('param')
+      await assertEmployeeInScope(c.get('currentUser'), matricule)
+      return employeeService.get(matricule)
+    }),
   )
   .patch(
     '/:matricule',
     zValidator('param', MatriculeParam),
     zValidator('json', EmployeeUpdateSchema),
     async (c) =>
-      handle(c, () =>
-        employeeService.update(
+      handle(c, async () => {
+        const { matricule } = c.req.valid('param')
+        await assertEmployeeInScope(c.get('currentUser'), matricule)
+        return employeeService.update(
           actorId(c),
-          c.req.valid('param').matricule,
+          matricule,
           c.req.valid('json'),
-        ),
-      ),
+        )
+      }),
   )
 
 export const personnel = new Hono<{ Variables: AppVariables }>()

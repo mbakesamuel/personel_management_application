@@ -1,4 +1,4 @@
-import type { PositionKeyword } from '@perf-appraisal-app/shared'
+import type { PositionKeyword } from '@personel-management-app/shared'
 import { Eye, KeyRound, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createApiClient } from '../api/client'

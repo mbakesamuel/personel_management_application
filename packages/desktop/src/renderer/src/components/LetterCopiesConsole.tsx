@@ -3,7 +3,7 @@ import type {
   LetterCcUnitExtra,
   LetterCcUnitOverlay,
   UnitOption,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { ArrowDown, ArrowUp, Pencil, Plus, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { createApiClient } from '../api/client'

@@ -4,7 +4,7 @@ import type {
   UnitOption,
   User,
   ZoneOption,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import {
   Building2,
   Eye,

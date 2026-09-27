@@ -1,4 +1,4 @@
-import type { DashboardResponse, User } from '@perf-appraisal-app/shared'
+import type { DashboardResponse, User } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import {
   sectionIdsForUser,
@@ -112,8 +112,8 @@ async function appraisalCounts(
   let awarded = 0
   for (const row of rows) {
     const matric = row.matric?.trim()
-    const codeUnit = matric ? (live.get(matric)?.codeUnit ?? null) : null
-    if (!inUnitScope(codeUnit, unitIds)) continue
+    const person = matric ? live.get(matric) : undefined
+    if (!person || !inUnitScope(person.codeUnit, unitIds)) continue
     if (row.tbl_award_id == null) inProgress += 1
     else awarded += 1
   }
@@ -122,12 +122,22 @@ async function appraisalCounts(
   if (sectionIds && sectionIds.length === 0) {
     posted = 0
   } else {
-    posted = await prisma.tbl_salaryreview.count({
+    const postedRows = await prisma.tbl_salaryreview.findMany({
       where: {
         appyear,
         ...(sectionIds ? { tbl_section_id: { in: sectionIds } } : {}),
       },
+      select: { matric: true },
     })
+    const postedLive = await resolveLiveEmployees(
+      postedRows
+        .map((row) => row.matric?.trim())
+        .filter((matric): matric is string => Boolean(matric)),
+    )
+    posted = postedRows.filter((row) => {
+      const matric = row.matric?.trim()
+      return matric ? postedLive.has(matric) : false
+    }).length
   }
 
   return { inProgress, awarded, posted }
@@ -149,8 +159,8 @@ async function allowanceCounts(
   const live = await resolveLiveEmployees(rows.map((row) => row.matricule))
   const counts = { ...empty }
   for (const row of rows) {
-    const codeUnit = live.get(row.matricule)?.codeUnit ?? null
-    if (!inUnitScope(codeUnit, unitIds)) continue
+    const person = live.get(row.matricule)
+    if (!person || !inUnitScope(person.codeUnit, unitIds)) continue
     if (row.workflowStatus === 'PENDING') counts.pending += 1
     else if (row.workflowStatus === 'VALIDATED') counts.validated += 1
     else if (row.workflowStatus === 'REJECTED') counts.rejected += 1

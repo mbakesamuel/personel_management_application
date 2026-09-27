@@ -3,8 +3,8 @@ import type {
   AllocationLetterListQuery,
   AllocationLetterRow,
   AllocationLettersResponse,
-} from '@perf-appraisal-app/shared'
-import { formatMemoDate } from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
+import { formatMemoDate } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import { resolveLetterCcLabels } from './letter-cc.service.js'
 import {
@@ -152,7 +152,8 @@ export async function buildAllocationLetters(
   const byMatric = new Map<string, typeof allocations>()
   for (const row of allocations) {
     const live = liveByMatric.get(row.matricule) ?? null
-    const codeUnit = live?.codeUnit ?? null
+    if (!live) continue
+    const codeUnit = live.codeUnit
 
     if (filterUnitId) {
       if (!codeUnit || !unitCodesMatch(codeUnit, filterUnitId)) continue

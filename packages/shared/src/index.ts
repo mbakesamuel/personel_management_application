@@ -80,6 +80,7 @@ export {
   isRoleScope,
   isScopeKind,
   isAdmin,
+  canEditWorkflowStatus,
   defaultPermissionsForRole,
   fallbackLabelForRole,
   fallbackScopeForRole,

@@ -1,4 +1,4 @@
-import type { Jurisdiction, RoleDefinition } from '@perf-appraisal-app/shared'
+import type { Jurisdiction, RoleDefinition } from '@personel-management-app/shared'
 import { Eye, Pencil, Plus, Shield, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createApiClient } from '../api/client'
@@ -57,6 +57,7 @@ type FormState = {
   canAllowanceMatrix: boolean
   canValidate: boolean
   canDemoteClassification: boolean
+  canEditValidated: boolean
   canLetterCc: boolean
   canDecisionMatrix: boolean
   canThroughOfficers: boolean
@@ -82,6 +83,7 @@ const PERMISSION_FIELDS = [
   ['canAllowanceMatrix', 'Allowance matrix'],
   ['canValidate', 'Validate workflow'],
   ['canDemoteClassification', 'Demote classification'],
+  ['canEditValidated', 'Edit validated records'],
   ['canLetterCc', 'Letter copies (CC)'],
   ['canDecisionMatrix', 'Decision Matrix'],
   ['canThroughOfficers', 'Through Officers'],
@@ -109,6 +111,7 @@ function emptyForm(defaultJurisdiction = 'section'): FormState {
     canAllowanceMatrix: false,
     canValidate: false,
     canDemoteClassification: false,
+    canEditValidated: false,
     canLetterCc: false,
     canDecisionMatrix: false,
     canThroughOfficers: false,
@@ -134,6 +137,7 @@ function permissionsSummary(role: RoleDefinition): string {
   if (role.canAllowanceMatrix) flags.push('Allow. matrix')
   if (role.canValidate) flags.push('Validate workflow')
   if (role.canDemoteClassification) flags.push('Demote class.')
+  if (role.canEditValidated) flags.push('Edit validated')
   if (role.canLetterCc) flags.push('CC')
   if (role.canDecisionMatrix) flags.push('Matrix')
   if (role.canThroughOfficers) flags.push('Thro')
@@ -291,6 +295,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
       canAllowanceMatrix: row.canAllowanceMatrix,
       canValidate: row.canValidate,
       canDemoteClassification: row.canDemoteClassification,
+      canEditValidated: row.canEditValidated,
       canLetterCc: row.canLetterCc,
       canDecisionMatrix: row.canDecisionMatrix,
       canThroughOfficers: row.canThroughOfficers,
@@ -325,6 +330,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
         canAllowanceMatrix: form.canAllowanceMatrix,
         canValidate: form.canValidate,
         canDemoteClassification: form.canDemoteClassification,
+        canEditValidated: form.canEditValidated,
         canLetterCc: form.canLetterCc,
         canDecisionMatrix: form.canDecisionMatrix,
         canThroughOfficers: form.canThroughOfficers,

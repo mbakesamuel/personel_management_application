@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ServerConfig } from '@perf-appraisal-app/shared'
+import type { ServerConfig } from '@personel-management-app/shared'
 
 function base64ToUint8Array(base64: string): Uint8Array {
   const binary = Buffer.from(base64, 'base64')

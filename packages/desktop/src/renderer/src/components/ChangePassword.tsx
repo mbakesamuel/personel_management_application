@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import type { FinancialYear, User } from '@perf-appraisal-app/shared'
+import type { FinancialYear, User } from '@personel-management-app/shared'
 import { createApiClient } from '../api/client'
 import { Button } from '@/components/ui/button'
 import {

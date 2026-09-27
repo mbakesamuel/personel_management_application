@@ -39,6 +39,7 @@ model tbl_employee {
   allowanceAllocation tbl_allowance_allocation[]
   fletRegistrations flet_registration[]
 
+  active         Boolean                       @default(true)
   workflowStatus tbl_personnel_workflow_status @default(PENDING)
   createdAt      DateTime                @default(now())
   createdById    Int
@@ -135,7 +136,6 @@ model tbl_emp_employment {
   placeEng      String
   profession    String?
   workStat      String?
-  unit          String?
 
   employee  tbl_employee       @relation(fields: [matricule], references: [matricule])
   contracts tbl_emp_contract[]
@@ -609,6 +609,7 @@ model tbl_roles {
   can_allowance_matrix     Boolean @default(false)
   can_validate             Boolean @default(false)
   can_demote_classification Boolean @default(false)
+  can_edit_validated   Boolean @default(false)
   can_letter_cc        Boolean @default(false)
   can_decision_matrix  Boolean @default(false)
   can_through_officers Boolean @default(false)

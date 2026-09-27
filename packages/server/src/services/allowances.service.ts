@@ -14,9 +14,10 @@ import type {
   AllowanceEmployeeOption,
   AllowanceWorkflowFields,
   WorkflowReviewInput,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import {
+  assertOperationalEmployee,
   formatEmployeeName,
   resolveLiveEmployee,
   resolveLiveEmployees,
@@ -355,7 +356,7 @@ export const allowanceTypeService = {
   ): Promise<AllowanceTypeOption> {
     const existing = await prisma.tbl_allowance_type.findUnique({ where: { id } })
     if (!existing) throw new PersonnelNotFoundError('Allowance type not found')
-    assertCanEdit(existing.workflowStatus)
+    await assertCanEdit(userId, existing.workflowStatus)
     return withPrisma(async () => {
       const row = await prisma.tbl_allowance_type.update({
         where: { id },
@@ -454,7 +455,7 @@ export const allowanceService = {
   ): Promise<AllowanceOption> {
     const existing = await prisma.tbl_allowance.findUnique({ where: { id } })
     if (!existing) throw new PersonnelNotFoundError('Allowance not found')
-    assertCanEdit(existing.workflowStatus)
+    await assertCanEdit(userId, existing.workflowStatus)
     const typeId =
       input.allowanceTypeId === undefined
         ? existing.allowanceTypeId
@@ -600,7 +601,7 @@ export const allowanceRateService = {
   ): Promise<AllowanceRateOption> {
     const existing = await prisma.tbl_allowance_rate.findUnique({ where: { id } })
     if (!existing) throw new PersonnelNotFoundError('Allowance rate not found')
-    assertCanEdit(existing.workflowStatus)
+    await assertCanEdit(userId, existing.workflowStatus)
     await requireValidatedAllowance(input.allowanceId.trim())
     const positionKeywordId = await resolvePositionKeywordId(
       input.positionKeywordId,
@@ -696,7 +697,10 @@ export const allowanceAllocationService = {
       },
       orderBy: [{ effectiveDate: 'desc' }, { id: 'desc' }],
     })
-    return rows.map(mapAllocation)
+    const live = await resolveLiveEmployees(rows.map((row) => row.matricule))
+    return rows
+      .filter((row) => live.has(row.matricule))
+      .map(mapAllocation)
   },
 
   async get(id: number): Promise<AllowanceAllocationOption> {
@@ -712,8 +716,8 @@ export const allowanceAllocationService = {
   },
 
   async eligibility(matricule: string): Promise<AllowanceAllocationEligibility> {
-    const employee = await requireEmployee(matricule.trim())
-    const live = await resolveLiveEmployee(employee.matricule)
+    const live = await assertOperationalEmployee(matricule)
+    const employee = await requireEmployee(live.matricule)
     const designation = live?.designation?.trim() || null
     const name =
       live?.names?.trim() ||
@@ -799,11 +803,11 @@ export const allowanceAllocationService = {
     input: AllowanceAllocationUpsertInput,
     bypassValidation = false,
   ): Promise<AllowanceAllocationOption> {
-    await requireEmployee(input.matricule.trim())
+    const liveEmployee = await assertOperationalEmployee(input.matricule)
     await requireValidatedAllowance(input.allowanceId.trim())
-    const matricule = input.matricule.trim()
+    const matricule = liveEmployee.matricule
     const allowanceId = input.allowanceId.trim()
-    const live = await resolveLiveEmployee(matricule)
+    const live = liveEmployee
     const designation = live?.designation?.trim() || null
     const keywords = await prisma.tbl_position_keyword.findMany({
       where: { active: true },
@@ -867,8 +871,8 @@ export const allowanceAllocationService = {
     input: AllowanceAllocationBatchInput,
     bypassValidation = false,
   ): Promise<AllowanceAllocationOption[]> {
-    const matricule = input.matricule.trim()
-    await requireEmployee(matricule)
+    const liveEmployee = await assertOperationalEmployee(input.matricule)
+    const matricule = liveEmployee.matricule
     const items = input.items.map((item) => ({
       allowanceId: item.allowanceId.trim(),
       allowanceAmt: item.allowanceAmt,
@@ -884,8 +888,7 @@ export const allowanceAllocationService = {
       await requireValidatedAllowance(item.allowanceId)
     }
 
-    const live = await resolveLiveEmployee(matricule)
-    const designation = live?.designation?.trim() || null
+    const designation = liveEmployee.designation?.trim() || null
     const keywords = await prisma.tbl_position_keyword.findMany({
       where: { active: true },
       select: { id: true, keyword: true },
@@ -987,7 +990,8 @@ export const allowanceAllocationService = {
     if (!existing) {
       throw new PersonnelNotFoundError('Allowance allocation not found')
     }
-    assertCanEdit(existing.workflowStatus)
+    await assertOperationalEmployee(existing.matricule)
+    await assertCanEdit(userId, existing.workflowStatus)
     const allowanceId =
       input.allowanceId !== undefined
         ? input.allowanceId.trim()
@@ -1125,6 +1129,7 @@ export async function searchAllowanceEmployees(
   const search = q?.trim()
   const rows = await prisma.tbl_employee.findMany({
     where: {
+      active: true,
       workflowStatus: { in: ['VALIDATED', 'PENDING'] },
       ...(search
         ? {

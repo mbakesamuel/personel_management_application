@@ -1,9 +1,9 @@
-import type { ProposedCategoryResult } from '@perf-appraisal-app/shared'
+import type { ProposedCategoryResult } from '@personel-management-app/shared'
 import {
   computeProposedCategoryFromScale,
   parseCatEchCode,
   requiresProposedCategoryCalculation,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 
 export class CategoryParseError extends Error {

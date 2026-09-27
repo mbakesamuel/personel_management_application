@@ -3,8 +3,9 @@ import type {
   SalaryReviewExportResponse,
   SalaryReviewExportRow,
   SalaryReviewExportSection,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
+import { resolveLiveEmployees } from './live-employee.service.js'
 
 function toDateOnly(value: Date | null | undefined): string | null {
   if (!value) return null
@@ -128,7 +129,7 @@ export async function exportSalaryReview(
     return { appyear, unitName: null, sections: [] }
   }
 
-  const [rows, selectedUnit] = await Promise.all([
+  const [loaded, selectedUnit] = await Promise.all([
     prisma.tbl_salaryreview.findMany({
       where: {
         appyear,
@@ -145,6 +146,15 @@ export async function exportSalaryReview(
         })
       : Promise.resolve(null),
   ])
+  const live = await resolveLiveEmployees(
+    loaded
+      .map((row) => row.matric?.trim())
+      .filter((matric): matric is string => Boolean(matric)),
+  )
+  const rows = loaded.filter((row) => {
+    const matric = row.matric?.trim()
+    return matric ? live.has(matric) : false
+  })
 
   const unitName = selectedUnit?.unit_name ?? null
   const includeEmptySections = Boolean(query.unitId) && query.sectionId == null

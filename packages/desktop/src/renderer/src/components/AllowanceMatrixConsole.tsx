@@ -3,7 +3,7 @@ import type {
   AllowanceOption,
   AllowanceTypeOption,
   PositionKeyword,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { Grid3x3, Link2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createApiClient } from '../api/client'

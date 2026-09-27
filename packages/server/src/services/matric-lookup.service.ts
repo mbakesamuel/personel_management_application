@@ -4,14 +4,14 @@ import type {
   AwardOption,
   MatricLookupMode,
   MatricLookupResult,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import {
   computeServiceYears,
   formatLengthOfService,
   resolveAwardEligibilityScenario,
   resolveDatePrefill,
   resolveEligibleAwardIds,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import { resolveLiveEmployee } from './live-employee.service.js'
 

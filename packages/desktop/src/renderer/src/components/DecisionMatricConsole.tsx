@@ -4,7 +4,7 @@ import type {
   DecisionLevelCode,
   GroupOption,
   UnitOption,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { createApiClient } from '../api/client'

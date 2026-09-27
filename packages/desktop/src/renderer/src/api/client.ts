@@ -1,6 +1,6 @@
 import { hc } from 'hono/client'
 
-import type { AppType } from '@perf-appraisal-app/server'
+import type { AppType } from '@personel-management-app/server'
 
 
 

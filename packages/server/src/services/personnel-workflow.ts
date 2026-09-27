@@ -1,4 +1,7 @@
+import { canEditWorkflowStatus } from '@personel-management-app/shared'
 import type { tbl_personnel_workflow_status } from '@prisma/client'
+import { prisma } from '../db.js'
+import { getPermissionsForRole } from './roles.service.js'
 
 export class PersonnelWorkflowError extends Error {
   status: 400 | 403 | 409
@@ -98,13 +101,25 @@ export function rejectStamps(userId: number, reviewNote?: string | null) {
   }
 }
 
-export function assertCanEdit(status: tbl_personnel_workflow_status): void {
-  if (status !== 'PENDING' && status !== 'REJECTED') {
-    throw new PersonnelWorkflowError(
-      'Only pending or rejected records can be edited',
-      409,
-    )
+export async function assertCanEdit(
+  userId: number,
+  status: tbl_personnel_workflow_status,
+): Promise<void> {
+  let canEditValidated = false
+  if (status === 'VALIDATED') {
+    const user = await prisma.tbl_users.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    })
+    canEditValidated = user
+      ? (await getPermissionsForRole(user.role)).canEditValidated
+      : false
   }
+  if (canEditWorkflowStatus(status, canEditValidated)) return
+  throw new PersonnelWorkflowError(
+    'Only pending or rejected records can be edited',
+    409,
+  )
 }
 
 export function assertCanValidate(record: WorkflowActor, userId: number): void {

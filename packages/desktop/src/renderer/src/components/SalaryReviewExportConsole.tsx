@@ -2,7 +2,7 @@ import type {
   SectionOption,
   UnitOption,
   User,
-} from "@perf-appraisal-app/shared";
+} from "@personel-management-app/shared";
 import { FileSpreadsheet, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { createApiClient } from "../api/client";

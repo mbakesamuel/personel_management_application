@@ -3,7 +3,7 @@ import type {
   PositionKeyword,
   PositionKeywordUpdateInput,
   PositionKeywordUpsertInput,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 
 export class PositionKeywordNotFoundError extends Error {

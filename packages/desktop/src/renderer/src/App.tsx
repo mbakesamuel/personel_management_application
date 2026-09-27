@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { FinancialYear, User } from "@perf-appraisal-app/shared";
+import type { FinancialYear, User } from "@personel-management-app/shared";
 import { BarChart3, ClipboardList, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setCurrentUserId } from "./api/client";

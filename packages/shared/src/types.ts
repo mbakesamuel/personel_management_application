@@ -456,6 +456,7 @@ export type EmployeeOption = {
   placeBirth: string
   sex: string
   nationality: string | null
+  active: boolean
 } & AllowanceWorkflowFields
 
 export type EmployeeListResponse = {

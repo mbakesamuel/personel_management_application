@@ -12,24 +12,24 @@ export default defineConfig({
     envPrefix: ['VITE_', 'MAIN_VITE_', 'SERVER_', 'AUTH_'],
     resolve: {
       alias: {
-        '@perf-appraisal-app/shared': sharedSrc,
+        '@personel-management-app/shared': sharedSrc,
       },
     },
     plugins: [
       externalizeDepsPlugin({
-        exclude: ['@perf-appraisal-app/shared'],
+        exclude: ['@personel-management-app/shared'],
       }),
     ],
   },
   preload: {
     resolve: {
       alias: {
-        '@perf-appraisal-app/shared': sharedSrc,
+        '@personel-management-app/shared': sharedSrc,
       },
     },
     plugins: [
       externalizeDepsPlugin({
-        exclude: ['@perf-appraisal-app/shared'],
+        exclude: ['@personel-management-app/shared'],
       }),
     ],
   },
@@ -45,7 +45,7 @@ export default defineConfig({
           replacement: `${resolve(root, 'src/renderer/src')}/`,
         },
         {
-          find: '@perf-appraisal-app/shared',
+          find: '@personel-management-app/shared',
           replacement: sharedSrc,
         },
       ],

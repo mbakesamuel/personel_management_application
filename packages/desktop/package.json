@@ -1,5 +1,5 @@
 {
-  "name": "@perf-appraisal-app/desktop",
+  "name": "@personel-management-app/desktop",
   "productName": "Personel Management Application",
   "version": "0.1.0",
   "private": true,
@@ -13,7 +13,7 @@
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
-    "@perf-appraisal-app/shared": "*",
+    "@personel-management-app/shared": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "hono": "^4.7.5",
@@ -27,7 +27,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@perf-appraisal-app/server": "*",
+    "@personel-management-app/server": "*",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.0.4",

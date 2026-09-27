@@ -1,4 +1,4 @@
-import type { FinancialYear, User } from '@perf-appraisal-app/shared'
+import type { FinancialYear, User } from '@personel-management-app/shared'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 import { mapDbUser } from './user-mapper.js'

@@ -1,4 +1,7 @@
-import type { WorkflowStatus } from '@perf-appraisal-app/shared'
+import {
+  canEditWorkflowStatus,
+  type WorkflowStatus,
+} from '@personel-management-app/shared'
 
 export type ChildResourceKey =
   | 'identifications'
@@ -16,6 +19,7 @@ export type LookupKind =
   | 'insuranceCentre'
   | 'transferType'
   | 'unit'
+  | 'unitAll'
   | 'contractType'
 
 export type ChildFieldType = 'text' | 'date' | 'number' | 'select'
@@ -83,8 +87,58 @@ export function toDateInputValue(value: unknown): string {
   return ''
 }
 
-export function canMutateChild(status: WorkflowStatus) {
-  return status === 'PENDING' || status === 'REJECTED'
+export function canMutateChild(
+  status: WorkflowStatus,
+  canEditValidated: boolean,
+) {
+  return canEditWorkflowStatus(status, canEditValidated)
+}
+
+export function canChangeEmployment(status: WorkflowStatus) {
+  return status === 'PENDING' || status === 'REJECTED' || status === 'VALIDATED'
+}
+
+const EMPLOYMENT_DETAIL_FIELDS = new Set([
+  'dateEng',
+  'jobEng',
+  'placeEng',
+  'profession',
+  'workStat',
+])
+
+export function isEmploymentDetailField(name: string) {
+  return EMPLOYMENT_DETAIL_FIELDS.has(name)
+}
+
+/** Pending or rejected contract on an employment, if one is open. */
+export function openEmploymentContract(
+  row: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const raw = row.contracts
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  return (
+    raw
+      .map(asRecord)
+      .find(
+        (contract) =>
+          contract.workflowStatus === 'PENDING' ||
+          contract.workflowStatus === 'REJECTED',
+      ) ?? null
+  )
+}
+
+/**
+ * Employment status, unless a validated employment has an open contract
+ * revision. That revision is what still needs review.
+ */
+export function employmentDisplayStatus(
+  row: Record<string, unknown>,
+): WorkflowStatus {
+  const employmentStatus = rowWorkflowStatus(row)
+  if (employmentStatus !== 'VALIDATED') return employmentStatus
+  const open = openEmploymentContract(row)
+  if (!open) return employmentStatus
+  return rowWorkflowStatus(open)
 }
 
 /** Prefer editable contract, else current, else latest. */
@@ -121,33 +175,64 @@ function toSortTime(value: unknown): number {
   return 0
 }
 
-/**
- * Appraisal-style current unit: latest VALIDATED movement To_unit_id,
- * else null (caller may fall back to employment.unit).
- */
-export function pickLatestValidatedToUnitId(
+function rowSortId(row: Record<string, unknown>): number {
+  const n = typeof row.id === 'number' ? row.id : Number(row.id)
+  return Number.isFinite(n) ? n : 0
+}
+
+export function unitCodesMatch(a: string, b: string): boolean {
+  if (a === b) return true
+  const na = Number(a)
+  const nb = Number(b)
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb
+}
+
+function toUnitFromMovement(
+  row: Record<string, unknown>,
+): { id: string; name: string } | null {
+  const nested = asRecord(row.To_unit)
+  const id = normalizeUnitCode(row.To_unit_id) ?? normalizeUnitCode(nested.id)
+  if (!id) return null
+  const nameRaw = nested.unit_name
+  const name =
+    typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim() : id
+  return { id, name }
+}
+
+/** Newest validated movement that has a To unit. */
+export function pickLatestValidatedToUnit(
   rows: Record<string, unknown>[],
-): string | null {
+): { id: string; name: string } | null {
   const validated = rows
     .filter((r) => r.workflowStatus === 'VALIDATED')
     .slice()
     .sort((a, b) => {
       const byDate = toSortTime(b.Eff_date) - toSortTime(a.Eff_date)
       if (byDate !== 0) return byDate
-      const idA = typeof a.id === 'number' ? a.id : 0
-      const idB = typeof b.id === 'number' ? b.id : 0
-      return idB - idA
+      return rowSortId(b) - rowSortId(a)
     })
-  const latest = validated[0]
-  if (!latest) return null
-  const direct = normalizeUnitCode(latest.To_unit_id)
-  if (direct) return direct
-  const toUnit = asRecord(latest.To_unit)
-  return normalizeUnitCode(toUnit.id)
+  for (const row of validated) {
+    const unit = toUnitFromMovement(row)
+    if (unit) return unit
+  }
+  return null
 }
 
-export function normalizeEmploymentUnit(unit: unknown): string | null {
-  return normalizeUnitCode(unit)
+/**
+ * From unit for a new movement: the current To unit, using the dropdown's id
+ * when `1` and `001` are the same unit.
+ */
+export function resolveMovementFromUnit(
+  rows: Record<string, unknown>[],
+  unitOptions: { value: string; label: string }[],
+): { value: string; label: string } | null {
+  const unit = pickLatestValidatedToUnit(rows)
+  if (!unit) return null
+  const matched = unitOptions.find((option) =>
+    unitCodesMatch(option.value, unit.id),
+  )
+  if (matched) return { value: matched.value, label: matched.label }
+  return { value: unit.id, label: unit.name }
 }
 
 export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
@@ -162,7 +247,6 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
       },
       { key: 'jobEng', label: 'Job', getValue: (r) => str(r.jobEng) },
       { key: 'placeEng', label: 'Place', getValue: (r) => str(r.placeEng) },
-      { key: 'unit', label: 'Unit', getValue: (r) => str(r.unit) },
       {
         key: 'contractType',
         label: 'Contract',
@@ -185,7 +269,6 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
       { name: 'placeEng', label: 'Place', type: 'text', required: true },
       { name: 'profession', label: 'Profession', type: 'text' },
       { name: 'workStat', label: 'Work status', type: 'text' },
-      { name: 'unit', label: 'Unit', type: 'text' },
       {
         name: 'contractType',
         label: 'Contract type',
@@ -202,15 +285,16 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
     label: 'Movements',
     columns: [
       {
-        key: 'Eff_date',
-        label: 'Effective',
-        getValue: (r) => formatDateCell(r.Eff_date),
-      },
-      {
         key: 'From_unit',
         label: 'From',
         getValue: (r) => nestedStr(r, ['From_unit', 'unit_name']),
       },
+      {
+        key: 'Eff_date',
+        label: 'Effective',
+        getValue: (r) => formatDateCell(r.Eff_date),
+      }
+      ,
       {
         key: 'To_unit',
         label: 'To',
@@ -235,7 +319,7 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
         name: 'To_unit_id',
         label: 'To unit',
         type: 'select',
-        lookup: 'unit',
+        lookup: 'unitAll',
       },
       { name: 'Position', label: 'Position', type: 'text' },
       {

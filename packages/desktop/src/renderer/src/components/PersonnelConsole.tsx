@@ -1,9 +1,10 @@
-import type {
-  EmployeeListResponse,
-  EmployeeOption,
-  User,
-  WorkflowStatus,
-} from '@perf-appraisal-app/shared'
+import {
+  canEditWorkflowStatus,
+  type EmployeeListResponse,
+  type EmployeeOption,
+  type User,
+  type WorkflowStatus,
+} from '@personel-management-app/shared'
 import {
   Check,
   Eye,
@@ -71,6 +72,7 @@ type FormState = {
   placeBirth: string
   sex: string
   nationality: string
+  active: boolean
 }
 
 type SortBy = 'matricule' | 'name'
@@ -95,11 +97,12 @@ function emptyForm(): FormState {
     placeBirth: '',
     sex: '',
     nationality: '',
+    active: true,
   }
 }
 
-function canMutate(status: WorkflowStatus) {
-  return status === 'PENDING' || status === 'REJECTED'
+function canMutate(status: WorkflowStatus, canEditValidated: boolean) {
+  return canEditWorkflowStatus(status, canEditValidated)
 }
 
 function WorkflowBadge({ status }: { status: WorkflowStatus }) {
@@ -260,6 +263,7 @@ export function PersonnelConsole({
       placeBirth: row.placeBirth,
       sex: row.sex,
       nationality: row.nationality ?? '',
+      active: row.active,
     })
     setFormError(null)
     setDialogOpen(true)
@@ -268,6 +272,38 @@ export function PersonnelConsole({
   function openGeneral(row: EmployeeOption) {
     setSelectedEmployee(row)
     setTab('general')
+  }
+
+  function rememberEmployee(row: EmployeeOption) {
+    setItems((prev) =>
+      prev.map((item) => (item.matricule === row.matricule ? row : item)),
+    )
+    setSelectedEmployee((prev) =>
+      prev?.matricule === row.matricule ? row : prev,
+    )
+    setViewRow((prev) => (prev?.matricule === row.matricule ? row : prev))
+  }
+
+  async function setEmployeeActive(active: boolean) {
+    if (!selectedEmployee) return
+    setLoading(true)
+    setStatus(null)
+    try {
+      const client = await createApiClient()
+      const res = await client.personnel.employees[':matricule'].$patch({
+        param: { matricule: selectedEmployee.matricule },
+        json: { active },
+      })
+      if (!res.ok) {
+        throw new Error(await readError(res, 'Could not update active status'))
+      }
+      const row = (await res.json()) as EmployeeOption
+      rememberEmployee(row)
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
   }
 
   function handleTabChange(value: string) {
@@ -289,6 +325,7 @@ export function PersonnelConsole({
           placeBirth: form.placeBirth.trim(),
           sex: form.sex.trim(),
           nationality: form.nationality.trim() || null,
+          active: form.active,
         }
         if (
           !payload.matricule ||
@@ -303,6 +340,7 @@ export function PersonnelConsole({
         if (!res.ok) {
           throw new Error(await readError(res, 'Create failed'))
         }
+        rememberEmployee((await res.json()) as EmployeeOption)
       } else {
         if (!editingMatricule) throw new Error('Missing matricule')
         const payload = {
@@ -312,6 +350,7 @@ export function PersonnelConsole({
           placeBirth: form.placeBirth.trim(),
           sex: form.sex.trim(),
           nationality: form.nationality.trim() || null,
+          active: form.active,
         }
         const res = await client.personnel.employees[':matricule'].$patch({
           param: { matricule: editingMatricule },
@@ -320,6 +359,7 @@ export function PersonnelConsole({
         if (!res.ok) {
           throw new Error(await readError(res, 'Update failed'))
         }
+        rememberEmployee((await res.json()) as EmployeeOption)
       }
       setDialogOpen(false)
       await loadPage()
@@ -366,6 +406,7 @@ export function PersonnelConsole({
         ['Place of birth', viewRow.placeBirth],
         ['Sex', viewRow.sex],
         ['Nationality', viewRow.nationality ?? '—'],
+        ['Active', viewRow.active ? 'Yes' : 'No'],
         ['Status', viewRow.workflowStatus],
         ['Review note', viewRow.reviewNote ?? '—'],
       ]
@@ -397,7 +438,7 @@ export function PersonnelConsole({
           </>
         }
         error={status}
-        stats={stats}
+       /*  stats={stats} */
         entityTabs={
           <Tabs value={tab} onValueChange={handleTabChange}>
             <TabsList>
@@ -464,12 +505,25 @@ export function PersonnelConsole({
         onSearchChange={setSearchDraft}
         searchPlaceholder="Search matricule, surname, first name…"
         showSearch={tab === 'list'}
-        toolbarExtra={null}
+        toolbarExtra={
+          tab === 'general' && selectedEmployee ? (
+            <label className="flex shrink-0 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={selectedEmployee.active}
+                disabled={loading}
+                onChange={(e) => void setEmployeeActive(e.target.checked)}
+              />
+              Active
+            </label>
+          ) : null
+        }
         selectionBar={null}
         table={
           tab === 'general' ? (
             selectedEmployee ? (
-              <div className="box-border flex h-full min-h-0 flex-col p-3">
+              <div className="box-border flex h-full min-h-0 flex-col gap-3 p-3">
                 <div
                   className={cn(
                     'grid h-full min-h-0 flex-1 gap-3 overflow-hidden [grid-auto-rows:minmax(0,1fr)]',
@@ -565,7 +619,10 @@ export function PersonnelConsole({
                         >
                           <Eye className="size-4" />
                         </Button>
-                        {canMutate(row.workflowStatus) ? (
+                        {canMutate(
+                          row.workflowStatus,
+                          currentUser.permissions.canEditValidated,
+                        ) ? (
                           <Button
                             type="button"
                             size="icon-sm"
@@ -718,6 +775,17 @@ export function PersonnelConsole({
             }
           />
         </FormDialogRow>
+        <FormDialogRow label="Active" htmlFor="emp-active">
+          <input
+            id="emp-active"
+            type="checkbox"
+            className="size-4 accent-primary"
+            checked={form.active}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, active: e.target.checked }))
+            }
+          />
+        </FormDialogRow>
         <FormDialogActions
           primaryLabel={loading ? 'Saving…' : 'Save'}
           onPrimary={() => void handleSave()}
@@ -737,7 +805,11 @@ export function PersonnelConsole({
       >
         <CatalogViewGrid rows={viewRows} />
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
-          {viewRow && canMutate(viewRow.workflowStatus) ? (
+          {viewRow &&
+          canMutate(
+            viewRow.workflowStatus,
+            currentUser.permissions.canEditValidated,
+          ) ? (
             <Button
               type="button"
               variant="outline"

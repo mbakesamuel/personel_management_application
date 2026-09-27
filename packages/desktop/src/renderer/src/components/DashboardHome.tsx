@@ -1,4 +1,4 @@
-import type { DashboardResponse, User } from '@perf-appraisal-app/shared'
+import type { DashboardResponse, User } from '@personel-management-app/shared'
 import { useCallback, useEffect, useState } from 'react'
 import { createApiClient } from '../api/client'
 import type { AppView } from './AppSidebar'

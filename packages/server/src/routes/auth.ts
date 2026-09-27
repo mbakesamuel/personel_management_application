@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import {
   ChangePasswordRequestSchema,
   LoginRequestSchema,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import {
   AuthValidationError,
   changePassword,

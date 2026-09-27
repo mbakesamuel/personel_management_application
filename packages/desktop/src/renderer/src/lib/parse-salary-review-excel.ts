@@ -1,4 +1,4 @@
-import type { SalaryReviewImportRow } from '@perf-appraisal-app/shared'
+import type { SalaryReviewImportRow } from '@personel-management-app/shared'
 import * as XLSX from 'xlsx'
 
 export type ParsedSalaryReviewExcel = {

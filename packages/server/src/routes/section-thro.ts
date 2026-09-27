@@ -4,7 +4,7 @@ import {
   SectionThroBatchSchema,
   SectionThroListQuerySchema,
   SectionThroUpsertSchema,
-} from '@perf-appraisal-app/shared'
+} from '@personel-management-app/shared'
 import { z } from 'zod'
 import type { AppVariables } from '../middleware/current-user.js'
 import {
