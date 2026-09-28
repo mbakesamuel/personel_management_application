@@ -23,6 +23,7 @@ import {
   sanctionLookup,
   sexLookup,
   transferTypeLookup,
+  departureLookup,
   workerUnionLookup,
   workStatusLookup,
 } from '../services/personnel-lookups.service.js'
@@ -160,6 +161,10 @@ const TransferTypeCreate = z.object({
   Type_transfer: z.string().min(1),
 })
 const TransferTypeUpdate = TransferTypeCreate.partial()
+const DepartureTypeCreate = z.object({
+  type_departure: z.string().min(1),
+})
+const DepartureTypeUpdate = DepartureTypeCreate.partial()
 const AbsenceCreate = z.object({
   id: z.string().min(1),
   absenceType: z.string().min(1),
@@ -329,6 +334,18 @@ export const personnelLookups = new Hono<{ Variables: AppVariables }>()
       remove: (id) => transferTypeLookup.remove(id),
       createSchema: TransferTypeCreate,
       updateSchema: TransferTypeUpdate,
+    }),
+  )
+  .route(
+    '/departure-types',
+    lookupRouter({
+      list: () => departureLookup.list(),
+      get: (id) => departureLookup.get(id),
+      create: (data) => departureLookup.create(data),
+      update: (id, data) => departureLookup.update(id, data),
+      remove: (id) => departureLookup.remove(id),
+      createSchema: DepartureTypeCreate,
+      updateSchema: DepartureTypeUpdate,
     }),
   )
   .route(

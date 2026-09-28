@@ -110,6 +110,16 @@ await fix(
    WHERE CAST(updatedat AS CHAR) LIKE '0000%'`,
 )
 
+await fix(
+  'tbl_emp_departure.effectiveDate',
+  `UPDATE tbl_emp_departure
+   SET effectiveDate = COALESCE(
+     NULLIF(createdAt, '0000-00-00 00:00:00'),
+     NOW()
+   )
+   WHERE CAST(effectiveDate AS CHAR) LIKE '0000%'`,
+)
+
 const employee = await prisma.tbl_employee.findUnique({
   where: { matricule: '080189' },
   select: { matricule: true, name: true, updatedAt: true, dateBirth: true },

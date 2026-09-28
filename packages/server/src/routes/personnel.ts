@@ -33,7 +33,8 @@ import {
   requirePermission,
   unitIdsForUser,
 } from '../services/authz.service.js'
-import { findMatriculesForCurrentUnits } from '../services/live-employee.service.js'
+import { prisma } from '../db.js'
+import { unitMatchIds } from '../services/live-employee.service.js'
 
 const ReviewSchema = WorkflowReviewSchema
 
@@ -154,8 +155,7 @@ const KinUpdateSchema = KinCreateSchema.omit({ matricule: true }).partial()
 
 const DepartureCreateSchema = z.object({
   matricule: z.string().min(1),
-  dateDeparture: optionalString,
-  reasonDeparture: optionalString,
+  departureId: z.number().int().positive(),
   effectiveDate: z.string().min(1),
 })
 const DepartureUpdateSchema = DepartureCreateSchema.omit({
@@ -257,7 +257,16 @@ async function matriculeForChildCreate(data: unknown): Promise<string | null> {
 async function matriculesInScope(user: AppVariables['currentUser']) {
   const allowed = await unitIdsForUser(user)
   if (allowed === null) return null
-  return findMatriculesForCurrentUnits(allowed)
+  if (allowed.length === 0) return []
+  const rows = await prisma.tbl_employee.findMany({
+    where: {
+      active: true,
+      workflowStatus: 'VALIDATED',
+      currentUnitId: { in: unitMatchIds(allowed) },
+    },
+    select: { matricule: true },
+  })
+  return rows.map((row) => row.matricule)
 }
 
 async function assertChildById(
@@ -375,13 +384,13 @@ const employees = new Hono<{ Variables: AppVariables }>()
     handle(c, async () =>
       employeeService.list(
         c.req.valid('query'),
-        await matriculesInScope(c.get('currentUser')),
+        await unitIdsForUser(c.get('currentUser')),
       ),
     ),
   )
   .get('/options', async (c) =>
     handle(c, async () =>
-      employeeService.options(await matriculesInScope(c.get('currentUser'))),
+      employeeService.options(await unitIdsForUser(c.get('currentUser'))),
     ),
   )
   .post('/', zValidator('json', EmployeeCreateSchema), async (c) =>

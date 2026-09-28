@@ -306,6 +306,24 @@ export function PersonnelChildTableDialog({
         setLookupError(null)
       }
 
+      if (needed.has('departure')) {
+        const res = await client.personnel.lookups['departure-types'].$get({
+          query: {},
+        })
+        if (res.ok) {
+          const data = (await res.json()) as Array<{
+            id: number
+            type_departure?: string
+          }>
+          next.departure = data.map((r) => ({
+            value: String(r.id),
+            label: r.type_departure ?? String(r.id),
+          }))
+        } else {
+          setLookupError(await readError(res, 'Failed to load departure types'))
+        }
+      }
+
       if (needed.has('contractType')) {
         next.contractType = [
           { value: 'UNSPECIFIED', label: 'Unspecified' },

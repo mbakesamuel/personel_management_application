@@ -143,14 +143,14 @@ export const workStatusLookup = createLookupService(
 )
 export const transferTypeLookup = {
   list() {
-    return prisma.tbl_transfer_type.findMany({ orderBy: { id: 'asc' } })
+    return prisma.tbl_transfer.findMany({ orderBy: { id: 'asc' } })
   },
   async get(id: string) {
     const numericId = Number(id)
     if (!Number.isInteger(numericId)) {
       throw new PersonnelNotFoundError('Transfer type not found')
     }
-    const row = await prisma.tbl_transfer_type.findUnique({
+    const row = await prisma.tbl_transfer.findUnique({
       where: { id: numericId },
     })
     if (!row) throw new PersonnelNotFoundError('Transfer type not found')
@@ -158,7 +158,7 @@ export const transferTypeLookup = {
   },
   create(input: { Type_transfer: string }) {
     return withPrisma(() =>
-      prisma.tbl_transfer_type.create({
+      prisma.tbl_transfer.create({
         data: { Type_transfer: input.Type_transfer.trim() },
       }),
     )
@@ -167,7 +167,7 @@ export const transferTypeLookup = {
     await this.get(id)
     const numericId = Number(id)
     return withPrisma(() =>
-      prisma.tbl_transfer_type.update({
+      prisma.tbl_transfer.update({
         where: { id: numericId },
         data: {
           ...(input.Type_transfer !== undefined
@@ -181,7 +181,51 @@ export const transferTypeLookup = {
     await this.get(id)
     const numericId = Number(id)
     return withPrisma(() =>
-      prisma.tbl_transfer_type.delete({ where: { id: numericId } }),
+      prisma.tbl_transfer.delete({ where: { id: numericId } }),
+    )
+  },
+}
+export const departureLookup = {
+  list() {
+    return prisma.tbl_departure.findMany({ orderBy: { id: 'asc' } })
+  },
+  async get(id: string) {
+    const numericId = Number(id)
+    if (!Number.isInteger(numericId)) {
+      throw new PersonnelNotFoundError('Departure type not found')
+    }
+    const row = await prisma.tbl_departure.findUnique({
+      where: { id: numericId },
+    })
+    if (!row) throw new PersonnelNotFoundError('Departure type not found')
+    return row
+  },
+  create(input: { type_departure: string }) {
+    return withPrisma(() =>
+      prisma.tbl_departure.create({
+        data: { type_departure: input.type_departure.trim() },
+      }),
+    )
+  },
+  async update(id: string, input: { type_departure?: string }) {
+    await this.get(id)
+    const numericId = Number(id)
+    return withPrisma(() =>
+      prisma.tbl_departure.update({
+        where: { id: numericId },
+        data: {
+          ...(input.type_departure !== undefined
+            ? { type_departure: input.type_departure.trim() }
+            : {}),
+        },
+      }),
+    )
+  },
+  async remove(id: string) {
+    await this.get(id)
+    const numericId = Number(id)
+    return withPrisma(() =>
+      prisma.tbl_departure.delete({ where: { id: numericId } }),
     )
   },
 }
@@ -191,6 +235,6 @@ export const absenceLookup = createLookupService(
 )
 export const insuranceCentreLookup = createLookupService(
   'Insurance centre',
-  asLookup(prisma.tbl_insurance_centre),
+  asLookup(prisma.tbl_insuranceCentre),
 )
 export const bankLookup = createLookupService('Bank', asLookup(prisma.tbl_bank))

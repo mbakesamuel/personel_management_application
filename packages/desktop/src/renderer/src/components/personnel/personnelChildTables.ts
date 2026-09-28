@@ -18,6 +18,7 @@ export type LookupKind =
   | 'marital'
   | 'insuranceCentre'
   | 'transferType'
+  | 'departure'
   | 'unit'
   | 'unitAll'
   | 'contractType'
@@ -247,6 +248,7 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
       },
       { key: 'jobEng', label: 'Job', getValue: (r) => str(r.jobEng) },
       { key: 'placeEng', label: 'Place', getValue: (r) => str(r.placeEng) },
+      { key: 'workStat', label: 'Work status', getValue: (r) => str(r.workStat) },
       {
         key: 'contractType',
         label: 'Contract',
@@ -366,14 +368,9 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
     label: 'Departures',
     columns: [
       {
-        key: 'dateDeparture',
-        label: 'Date',
-        getValue: (r) => formatDateCell(r.dateDeparture),
-      },
-      {
-        key: 'reasonDeparture',
-        label: 'Reason',
-        getValue: (r) => str(r.reasonDeparture),
+        key: 'departure',
+        label: 'Departure',
+        getValue: (r) => nestedStr(r, ['departure', 'type_departure']),
       },
       {
         key: 'effectiveDate',
@@ -382,8 +379,13 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
       },
     ],
     fields: [
-      { name: 'dateDeparture', label: 'Departure date', type: 'date' },
-      { name: 'reasonDeparture', label: 'Reason', type: 'text' },
+      {
+        name: 'departureId',
+        label: 'Departure',
+        type: 'select',
+        required: true,
+        lookup: 'departure',
+      },
       {
         name: 'effectiveDate',
         label: 'Effective date',
@@ -595,7 +597,7 @@ export function buildPayload(
       payload[field.name] = null
       continue
     }
-    if (field.type === 'number' || field.lookup === 'transferType') {
+    if (field.type === 'number' || field.lookup === 'transferType' || field.lookup === 'departure') {
       const n = Number(raw)
       payload[field.name] = Number.isFinite(n) ? n : raw
     } else {

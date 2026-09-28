@@ -57,6 +57,35 @@ function unitIdCandidates(code: string): string[] {
   return [...new Set(ids)]
 }
 
+/** Unit ids that count as the same posting, including padded codes. */
+export function unitMatchIds(unitIds: string[]): string[] {
+  const ids = new Set<string>()
+  for (const unitId of unitIds) {
+    const code = normalizeUnitCode(unitId)
+    if (!code) continue
+    for (const candidate of unitIdCandidates(code)) ids.add(candidate)
+  }
+  return [...ids]
+}
+
+/**
+ * tbl_unit.id for a movement To unit. Padded codes such as 1 and 001 resolve
+ * to the stored unit id. An unknown code is kept as entered. Null clears it.
+ */
+export async function canonicalUnitId(
+  toUnitId: string | null | undefined,
+): Promise<string | null> {
+  const code = normalizeUnitCode(toUnitId)
+  if (!code) return null
+  const units = await prisma.tbl_unit.findMany({
+    where: { id: { in: unitIdCandidates(code) } },
+    select: { id: true },
+  })
+  return units.find((unit) => unit.id === code)?.id
+    ?? units.find((unit) => unitCodesMatch(unit.id, code))?.id
+    ?? code
+}
+
 function preCatFrom(category: string | null, echelon: string | null): string | null {
   if (!category && !echelon) return null
   const formatted = formatProposedCat(category, echelon)
@@ -270,56 +299,4 @@ export async function findMatriculesForUnits(
     select: { matricule: true },
   })
   return live.map((row) => row.matricule)
-}
-
-/**
- * Validated, active employees whose latest validated movement To unit
- * matches one of the given units. An older posting does not count.
- */
-export async function findMatriculesForCurrentUnits(
-  unitIds: string[],
-): Promise<string[]> {
-  const codes = [
-    ...new Set(
-      unitIds
-        .map((id) => normalizeUnitCode(id))
-        .filter((id): id is string => id != null),
-    ),
-  ]
-  if (codes.length === 0) return []
-
-  const lookupIds = [...new Set(codes.flatMap(unitIdCandidates))]
-  const candidates = await prisma.tbl_emp_movement.findMany({
-    where: {
-      workflowStatus: 'VALIDATED',
-      To_unit_id: { in: lookupIds },
-      employee: operationalEmployeeWhere,
-    },
-    distinct: ['matricule'],
-    select: { matricule: true },
-  })
-  if (candidates.length === 0) return []
-
-  const matricules = candidates.map((row) => row.matricule)
-  const movements = await prisma.tbl_emp_movement.findMany({
-    where: {
-      matricule: { in: matricules },
-      workflowStatus: 'VALIDATED',
-    },
-    orderBy: [{ Eff_date: 'desc' }, { id: 'desc' }],
-    select: { matricule: true, To_unit_id: true },
-  })
-
-  const latestToUnit = new Map<string, string | null>()
-  for (const row of movements) {
-    if (!latestToUnit.has(row.matricule)) {
-      latestToUnit.set(row.matricule, normalizeUnitCode(row.To_unit_id))
-    }
-  }
-
-  return matricules.filter((matricule) => {
-    const codeUnit = latestToUnit.get(matricule)
-    if (!codeUnit) return false
-    return codes.some((unitId) => unitCodesMatch(unitId, codeUnit))
-  })
 }

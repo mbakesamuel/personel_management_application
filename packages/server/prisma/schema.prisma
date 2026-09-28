@@ -37,9 +37,10 @@ model tbl_employee {
   classifications  tbl_emp_class[]
   nationalities tbl_emp_nat_iden[]
   allowanceAllocation tbl_allowance_allocation[]
-  fletRegistrations flet_registration[]
+  fleetRegistrations fleet_registration[]
 
   active         Boolean                       @default(true)
+  currentUnitId  String?
   workflowStatus tbl_personnel_workflow_status @default(PENDING)
   createdAt      DateTime                @default(now())
   createdById    Int
@@ -52,6 +53,7 @@ model tbl_employee {
   reviewNote     String?
 
   @@index([workflowStatus])
+  @@index([currentUnitId])
 }
 
 model tbl_emp_nat_iden {
@@ -86,7 +88,7 @@ model tbl_emp_insurance {
   centre_id        String
   reg_date DateTime?
 
-  ins_centre tbl_insurance_centre @relation(fields: [centre_id], references: [id])
+  ins_centre tbl_insuranceCentre @relation(fields: [centre_id], references: [id])
   employee        tbl_employee        @relation(fields: [matricule], references: [matricule])
 
   workflowStatus tbl_personnel_workflow_status @default(PENDING)
@@ -236,8 +238,8 @@ model tbl_emp_nextkin {
 model tbl_emp_departure {
   id              Int       @id @default(autoincrement())
   matricule       String
-  dateDeparture   DateTime?
-  reasonDeparture String?
+  departureId     Int
+  departure       tbl_departure @relation(fields: [departureId], references: [id])
   effectiveDate   DateTime
 
   employee tbl_employee @relation(fields: [matricule], references: [matricule])
@@ -256,6 +258,17 @@ model tbl_emp_departure {
 
   @@index([matricule])
   @@index([workflowStatus])
+  @@index([departureId])
+}
+
+model tbl_departure {
+  id             Int      @id @default(autoincrement())
+  type_departure String
+  EmpDeparture tbl_emp_departure[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("tbl_departure")
 }
 
 model tbl_emp_movement {
@@ -268,7 +281,7 @@ model tbl_emp_movement {
   To_unit tbl_unit? @relation("EmpMovementToUnit", fields: [To_unit_id], references: [id])
   Position  String?
   trans_type_id Int
-  TransferType tbl_transfer_type @relation(fields: [trans_type_id], references: [id])
+  TransferType tbl_transfer @relation(fields: [trans_type_id], references: [id])
 
   employee tbl_employee @relation(fields: [matricule], references: [matricule])
 
@@ -407,20 +420,21 @@ model tbl_worker_union{
   updatedAt   DateTime @updatedAt
 }
 
-model tbl_work_status{
-  id            String    @id
-  workStatus    String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+model tbl_work_status {
+  id         String   @id
+  workStatus String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
-model tbl_transfer_type{
-  id              Int     @id @default(autoincrement())
-  Type_transfer   String  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model tbl_transfer {
+  id            Int      @id @default(autoincrement())
+  Type_transfer String
+  EmpMovement   tbl_emp_movement[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  EmpMovement tbl_emp_movement[]
+  @@map("tbl_transfer_type")
 }
 
 model tbl_absence{
@@ -430,12 +444,14 @@ model tbl_absence{
   updatedAt   DateTime @updatedAt
 }
 
-model tbl_insurance_centre {
+model tbl_insuranceCentre {
   id          String   @id
   centreName String
   EmpInsurance tbl_emp_insurance[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@map("tbl_insurance_centre")
 }
 
 model tbl_bank {
@@ -837,7 +853,6 @@ model tbl_allowance_keyword {
 }
 
 //communication allowances specific models.
-
 model tbl_operator {
   id            Int       @id @default(autoincrement())
   name          String
@@ -851,7 +866,7 @@ model tbl_operator {
   isActive      Boolean   @default(true)
  
   numberPrefixes number_prefix[]
-  fletRegistrations flet_registration[]
+  fleetRegistrations fleet_registration[]
   @@index([isActive])
   @@index([email])
   @@index([phone])
@@ -876,7 +891,7 @@ model number_prefix {
 
   }
 
-  model flet_registration {
+  model fleet_registration {
     id            Int       @id @default(autoincrement())
     matricule             String
     operator_id           Int
@@ -899,7 +914,7 @@ model number_prefix {
   }
 
 //this could be used to store monthly generated allowance payments.
- model flet_payment {
+ model fleet_payment {
   id            Int       @id @default(autoincrement())
   matricule             String
   operator_id           Int

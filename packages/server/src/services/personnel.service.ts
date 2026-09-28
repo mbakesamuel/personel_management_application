@@ -9,6 +9,7 @@ import type {
 } from '@personel-management-app/shared'
 import { formatProposedCat } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
+import { canonicalUnitId, unitMatchIds } from './live-employee.service.js'
 import { resolveCatAndEchIds } from './category-proposal.service.js'
 import { getPermissionsForRole } from './roles.service.js'
 import {
@@ -216,17 +217,31 @@ async function withPrisma<T>(fn: () => Promise<T>): Promise<T> {
 export const employeeService = {
   async list(
     query: EmployeeListQuery,
-    matricules: string[] | null = null,
+    unitIds: string[] | null = null,
   ): Promise<EmployeeListResponse> {
     const { page, limit, skip } = pagination(query)
-    if (matricules && matricules.length === 0) {
+    if (unitIds && unitIds.length === 0) {
+      return { items: [], total: 0, page, limit }
+    }
+    if (
+      unitIds &&
+      query.workflowStatus &&
+      query.workflowStatus !== 'VALIDATED'
+    ) {
       return { items: [], total: 0, page, limit }
     }
     const search = query.search?.trim()
     const sortBy = query.sortBy ?? 'name'
     const where: Prisma.tbl_employeeWhereInput = {
-      ...(matricules ? { matricule: { in: matricules } } : {}),
-      ...(query.workflowStatus ? { workflowStatus: query.workflowStatus } : {}),
+      ...(unitIds
+        ? {
+            active: true,
+            workflowStatus: 'VALIDATED' as const,
+            currentUnitId: { in: unitMatchIds(unitIds) },
+          }
+        : query.workflowStatus
+          ? { workflowStatus: query.workflowStatus }
+          : {}),
       ...(search
         ? {
             OR: [
@@ -261,12 +276,14 @@ export const employeeService = {
     }
   },
 
-  async options(matricules: string[] | null = null) {
-    if (matricules && matricules.length === 0) return []
+  async options(unitIds: string[] | null = null) {
+    if (unitIds && unitIds.length === 0) return []
     return prisma.tbl_employee.findMany({
       where: {
         workflowStatus: 'VALIDATED',
-        ...(matricules ? { matricule: { in: matricules } } : {}),
+        ...(unitIds
+          ? { active: true, currentUnitId: { in: unitMatchIds(unitIds) } }
+          : {}),
       },
       select: { matricule: true, name: true, firstname: true },
       orderBy: [{ name: 'asc' }, { matricule: 'asc' }],
@@ -1392,12 +1409,17 @@ export const departureService = {
         ...workflowFilter(query),
         ...(query.current !== undefined ? { current: query.current } : {}),
       },
+      include: { departure: true },
       orderBy: [{ id: 'desc' }],
     })
   },
   async get(id: number) {
     return loadChild(
-      () => prisma.tbl_emp_departure.findUnique({ where: { id } }),
+      () =>
+        prisma.tbl_emp_departure.findUnique({
+          where: { id },
+          include: { departure: true },
+        }),
       'Departure',
     )
   },
@@ -1405,8 +1427,7 @@ export const departureService = {
     userId: number,
     input: {
       matricule: string
-      dateDeparture?: string | null
-      reasonDeparture?: string | null
+      departureId: number
       effectiveDate: string
     },
   ) {
@@ -1415,9 +1436,7 @@ export const departureService = {
       prisma.tbl_emp_departure.create({
         data: {
           matricule: input.matricule,
-          dateDeparture:
-            parseOptionalDate(input.dateDeparture, 'dateDeparture') ?? null,
-          reasonDeparture: input.reasonDeparture ?? null,
+          departureId: input.departureId,
           effectiveDate: parseDate(input.effectiveDate, 'effectiveDate'),
           current: false,
           ...pendingCreateStamps(userId),
@@ -1429,8 +1448,7 @@ export const departureService = {
     userId: number,
     id: number,
     input: {
-      dateDeparture?: string | null
-      reasonDeparture?: string | null
+      departureId?: number
       effectiveDate?: string
     },
   ) {
@@ -1440,15 +1458,8 @@ export const departureService = {
       prisma.tbl_emp_departure.update({
         where: { id },
         data: {
-          ...(input.dateDeparture !== undefined
-            ? {
-                dateDeparture:
-                  parseOptionalDate(input.dateDeparture, 'dateDeparture') ??
-                  null,
-              }
-            : {}),
-          ...(input.reasonDeparture !== undefined
-            ? { reasonDeparture: input.reasonDeparture }
+          ...(input.departureId !== undefined
+            ? { departureId: input.departureId }
             : {}),
           ...(input.effectiveDate !== undefined
             ? { effectiveDate: parseDate(input.effectiveDate, 'effectiveDate') }
@@ -1460,6 +1471,7 @@ export const departureService = {
   },
   async validate(userId: number, id: number, review?: ReviewInput) {
     const row = await this.get(id)
+    const typeName = row.departure.type_departure
     return supersedeAndValidate({
       userId,
       review,
@@ -1470,8 +1482,27 @@ export const departureService = {
           where: { matricule: row.matricule, current: true, NOT: { id } },
           data: { current: false, workflowStatus: 'SUPERSEDED' },
         }),
-      validate: (tx, data) =>
-        tx.tbl_emp_departure.update({ where: { id }, data }),
+      validate: async (tx, data) => {
+        const updated = await tx.tbl_emp_departure.update({
+          where: { id },
+          data,
+        })
+        const employment = await tx.tbl_emp_employment.findFirst({
+          where: { matricule: row.matricule },
+          select: { id: true },
+        })
+        if (!employment) {
+          throw new PersonnelWorkflowError(
+            'Employee has no employment record',
+            400,
+          )
+        }
+        await tx.tbl_emp_employment.update({
+          where: { id: employment.id },
+          data: { workStat: typeName, updatedById: userId },
+        })
+        return updated
+      },
     })
   },
   async reject(userId: number, id: number, review?: ReviewInput) {
@@ -1551,30 +1582,45 @@ export const movementService = {
   ) {
     const row = await this.get(id)
     await assertCanEdit(userId, row.workflowStatus)
+    const syncCurrentUnit =
+      row.workflowStatus === 'VALIDATED' && input.To_unit_id !== undefined
+    const currentUnitId = syncCurrentUnit
+      ? await canonicalUnitId(input.To_unit_id)
+      : null
     return withPrisma(() =>
-      prisma.tbl_emp_movement.update({
-        where: { id },
-        data: {
-          ...(input.Eff_date !== undefined
-            ? { Eff_date: parseOptionalDate(input.Eff_date, 'Eff_date') ?? null }
-            : {}),
-          ...(input.From_unit_id !== undefined
-            ? { From_unit_id: input.From_unit_id }
-            : {}),
-          ...(input.To_unit_id !== undefined
-            ? { To_unit_id: input.To_unit_id }
-            : {}),
-          ...(input.Position !== undefined ? { Position: input.Position } : {}),
-          ...(input.trans_type_id !== undefined
-            ? { trans_type_id: input.trans_type_id }
-            : {}),
-          ...editStamps(userId, row.workflowStatus),
-        },
+      prisma.$transaction(async (tx) => {
+        const updated = await tx.tbl_emp_movement.update({
+          where: { id },
+          data: {
+            ...(input.Eff_date !== undefined
+              ? { Eff_date: parseOptionalDate(input.Eff_date, 'Eff_date') ?? null }
+              : {}),
+            ...(input.From_unit_id !== undefined
+              ? { From_unit_id: input.From_unit_id }
+              : {}),
+            ...(input.To_unit_id !== undefined
+              ? { To_unit_id: input.To_unit_id }
+              : {}),
+            ...(input.Position !== undefined ? { Position: input.Position } : {}),
+            ...(input.trans_type_id !== undefined
+              ? { trans_type_id: input.trans_type_id }
+              : {}),
+            ...editStamps(userId, row.workflowStatus),
+          },
+        })
+        if (syncCurrentUnit) {
+          await tx.tbl_employee.update({
+            where: { matricule: row.matricule },
+            data: { currentUnitId },
+          })
+        }
+        return updated
       }),
     )
   },
   async validate(userId: number, id: number, review?: ReviewInput) {
     const row = await this.get(id)
+    const currentUnitId = await canonicalUnitId(row.To_unit_id)
     return supersedeAndValidate({
       userId,
       review,
@@ -1588,8 +1634,14 @@ export const movementService = {
           },
           data: { workflowStatus: 'SUPERSEDED' },
         }),
-      validate: (tx, data) =>
-        tx.tbl_emp_movement.update({ where: { id }, data }),
+      validate: async (tx, data) => {
+        const updated = await tx.tbl_emp_movement.update({ where: { id }, data })
+        await tx.tbl_employee.update({
+          where: { matricule: row.matricule },
+          data: { currentUnitId },
+        })
+        return updated
+      },
     })
   },
   async reject(userId: number, id: number, review?: ReviewInput) {
