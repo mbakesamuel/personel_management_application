@@ -183,6 +183,7 @@ model tbl_emp_contract {
   @@index([workflowStatus])
 }
 
+
 model tbl_emp_family {
   id            Int       @id @default(autoincrement())
   matricule     String
