@@ -549,9 +549,18 @@ export const EmployeeCreateSchema = z.object({
   firstname: z.string().trim().max(120).nullable().optional(),
   dateBirth: z.string().min(1),
   placeBirth: z.string().trim().min(1).max(120),
-  sex: z.string().trim().min(1).max(20),
+  sex: z.enum(['Male', 'Female']),
   nationality: z.string().trim().max(120).nullable().optional(),
   active: z.boolean().optional(),
+  image: z
+    .string()
+    .max(2_500_000)
+    .refine(
+      (value) => value.startsWith('data:image/'),
+      'Image must be an image file',
+    )
+    .nullable()
+    .optional(),
 })
 
 export const EmployeeUpdateSchema = EmployeeCreateSchema.omit({

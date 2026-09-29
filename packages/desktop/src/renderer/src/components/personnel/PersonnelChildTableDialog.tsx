@@ -118,6 +118,24 @@ async function readError(res: Response, fallback: string) {
   return body?.error ?? fallback
 }
 
+function isCurrentFamilyMember(row: Record<string, unknown>) {
+  return (
+    row.workflowStatus === 'VALIDATED' && row.current === true
+  )
+}
+
+function familyWifeCount(rows: Record<string, unknown>[]) {
+  return rows.filter(
+    (row) => isCurrentFamilyMember(row) && row.relationship === 'SPOUSE',
+  ).length
+}
+
+function familyChildCount(rows: Record<string, unknown>[]) {
+  return rows.filter(
+    (row) => isCurrentFamilyMember(row) && row.relationship === 'CHILD',
+  ).length
+}
+
 function getChildApi(
   client: Awaited<ReturnType<typeof createApiClient>>,
   resource: string,
@@ -232,6 +250,7 @@ export function PersonnelChildTableDialog({
     try {
       const client = await createApiClient()
       const next: Partial<Record<LookupKind, LookupOption[]>> = {}
+      let lookupMessage: string | null = null
 
       if (needed.has('marital')) {
         const res = await client.personnel.lookups['marital-statuses'].$get({
@@ -262,6 +281,26 @@ export function PersonnelChildTableDialog({
             value: r.id,
             label: r.centreName ?? r.id,
           }))
+        } else {
+          lookupMessage = await readError(res, 'Failed to load insurance centres')
+        }
+      }
+
+      if (needed.has('diploma')) {
+        const res = await client.personnel.lookups.diplomas.$get({
+          query: {},
+        })
+        if (res.ok) {
+          const data = (await res.json()) as Array<{
+            id: string
+            deplomaName?: string
+          }>
+          next.diploma = data.map((r) => ({
+            value: r.id,
+            label: r.deplomaName ?? r.id,
+          }))
+        } else {
+          lookupMessage = await readError(res, 'Failed to load diplomas')
         }
       }
 
@@ -298,12 +337,8 @@ export function PersonnelChildTableDialog({
         }
         if (!scopedRes.ok || !allRes.ok) {
           const failed = !scopedRes.ok ? scopedRes : allRes
-          setLookupError(await readError(failed, 'Failed to load units'))
-        } else {
-          setLookupError(null)
+          lookupMessage = await readError(failed, 'Failed to load units')
         }
-      } else {
-        setLookupError(null)
       }
 
       if (needed.has('departure')) {
@@ -320,14 +355,30 @@ export function PersonnelChildTableDialog({
             label: r.type_departure ?? String(r.id),
           }))
         } else {
-          setLookupError(await readError(res, 'Failed to load departure types'))
+          lookupMessage = await readError(res, 'Failed to load departure types')
         }
       }
+
+      setLookupError(lookupMessage)
 
       if (needed.has('contractType')) {
         next.contractType = [
           { value: 'UNSPECIFIED', label: 'Unspecified' },
           { value: 'SPECIFIED', label: 'Specified' },
+        ]
+      }
+
+      if (needed.has('familyRelationship')) {
+        next.familyRelationship = [
+          { value: 'SPOUSE', label: 'Spouse' },
+          { value: 'CHILD', label: 'Child' },
+        ]
+      }
+
+      if (needed.has('sexKind')) {
+        next.sexKind = [
+          { value: 'Male', label: 'Male' },
+          { value: 'Female', label: 'Female' },
         ]
       }
 
@@ -596,6 +647,15 @@ export function PersonnelChildTableDialog({
         className="sm:max-w-4xl"
       >
         <FormDialogError>{status ?? lookupError}</FormDialogError>
+        {config.id === 'family-infos' ? (
+          <p className="text-sm text-muted-foreground">
+            Wives {familyWifeCount(rows)} · Children {familyChildCount(rows)} ·
+            Marital status{' '}
+            {familyWifeCount(rows) >= 1
+              ? 'Married'
+              : (employee.maritalStatus ?? '—')}
+          </p>
+        ) : null}
         <div className="flex min-h-72 gap-4">
           <div className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border">
             <Table>

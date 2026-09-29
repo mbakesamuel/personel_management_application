@@ -233,11 +233,38 @@ export type DashboardAllowanceCounts = {
   rejected: number
 }
 
+export type DashboardSlice = {
+  label: string
+  value: number
+}
+
+export type DashboardSexBar = {
+  label: string
+  male: number
+  female: number
+}
+
+export type DashboardMonthBar = {
+  label: string
+  engagements: number
+  departures: number
+}
+
+export type DashboardWorkforce = {
+  sex: DashboardSlice[]
+  category: DashboardSexBar[]
+  group: DashboardSexBar[]
+  workStatus: DashboardSlice[]
+  place: DashboardSlice[]
+  movement: DashboardMonthBar[]
+}
+
 export type DashboardResponse = {
   scopeLabel: string
   appyear: number | null
   appraisals: DashboardAppraisalCounts | null
   allowances: DashboardAllowanceCounts | null
+  workforce: DashboardWorkforce
 }
 
 export type AppraisalSummaryRow = {
@@ -454,9 +481,16 @@ export type EmployeeOption = {
   firstname: string | null
   dateBirth: string
   placeBirth: string
-  sex: string
+  sex: string | null
   nationality: string | null
+  maritalStatus: string | null
+  wives: number
+  noChildren: number
   active: boolean
+  unitName?: string | null
+  dateEng?: string | null
+  hasImage?: boolean
+  image?: string | null
 } & AllowanceWorkflowFields
 
 export type EmployeeListResponse = {

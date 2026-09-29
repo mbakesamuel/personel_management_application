@@ -18,21 +18,37 @@ enum tbl_emp_contract_type {
   UNSPECIFIED
 }
 
+enum tbl_emp_family_relationship {
+  SPOUSE
+  CHILD
+}
+
+enum tbl_sex_kind {
+  Male
+  Female
+}
+
 model tbl_employee {
   matricule     String   @id
   name          String
   firstname     String?
   dateBirth     DateTime
   placeBirth    String
-  sex           String
+  sex           tbl_sex_kind?
   nationality   String?
+  image         String?  @db.LongText
+
+  maritalStatus String?
+  wives         Int       @default(0)
+  noChildren    Int       @default(0)
 
   employments      tbl_emp_employment[]
-  familyInfos      tbl_emp_family[]
+  familyMembers    tbl_emp_family_member[]
   kinInfos         tbl_emp_nextkin[]
   departures       tbl_emp_departure[]
   maritalStatuses  tbl_emp_marital_status[]
   empInsurance     tbl_emp_insurance[]
+  diplomas         tbl_emp_diploma[]
   movements        tbl_emp_movement[]
   classifications  tbl_emp_class[]
   nationalities tbl_emp_nat_iden[]
@@ -96,6 +112,34 @@ model tbl_emp_insurance {
   createdAt      DateTime                @default(now())
   createdById    Int
   updatedAt      DateTime                @updatedAt
+  updatedById    Int?
+  validatedAt    DateTime?
+  validatedById  Int?
+  rejectedAt     DateTime?
+  rejectedById   Int?
+  reviewNote     String?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_emp_diploma {
+  id           Int      @id @default(autoincrement())
+  matricule    String
+  diplomaId    String
+  dateObtained DateTime
+  subject      String?
+  institution  String?
+  remarks      String?
+
+  diploma  tbl_diploma  @relation(fields: [diplomaId], references: [id])
+  employee tbl_employee @relation(fields: [matricule], references: [matricule])
+
+  workflowStatus tbl_personnel_workflow_status @default(PENDING)
+  current        Boolean                       @default(false)
+  createdAt      DateTime                      @default(now())
+  createdById    Int
+  updatedAt      DateTime                      @updatedAt
   updatedById    Int?
   validatedAt    DateTime?
   validatedById  Int?
@@ -184,21 +228,23 @@ model tbl_emp_contract {
 }
 
 
-model tbl_emp_family {
-  id            Int       @id @default(autoincrement())
+model tbl_emp_family_member {
+  id            Int                         @id @default(autoincrement())
   matricule     String
-  noSpouses     Int?
-  noChildren    Int?
-  relCode       String?
-  effectiveDate DateTime?
+  fullName      String
+  relationship    tbl_emp_family_relationship?
+  sex             tbl_sex_kind?
+  dateOfBirth     DateTime
+  applicationDate DateTime
+  certificateNo   String?
 
   employee tbl_employee @relation(fields: [matricule], references: [matricule])
 
   workflowStatus tbl_personnel_workflow_status @default(PENDING)
-  current        Boolean                 @default(false)
-  createdAt      DateTime                @default(now())
+  current        Boolean                       @default(false)
+  createdAt      DateTime                      @default(now())
   createdById    Int
-  updatedAt      DateTime                @updatedAt
+  updatedAt      DateTime                      @updatedAt
   updatedById    Int?
   validatedAt    DateTime?
   validatedById  Int?
@@ -268,8 +314,6 @@ model tbl_departure {
   EmpDeparture tbl_emp_departure[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-
-  @@map("tbl_departure")
 }
 
 model tbl_emp_movement {
@@ -343,6 +387,7 @@ model tbl_designation {
 model tbl_diploma{
   id          String    @id
   deplomaName String
+  empDiplomas tbl_emp_diploma[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -364,7 +409,7 @@ model tbl_division{
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
-model tbl_Language{
+model tbl_language{
   id          String    @id
   language    String
   createdAt   DateTime @default(now())
@@ -401,7 +446,7 @@ model tbl_sanction{
   updatedAt   DateTime @updatedAt
 }
 
-model tbl_Sex{
+model tbl_sex{
   id          String    @id
   sexName String
   createdAt   DateTime @default(now())

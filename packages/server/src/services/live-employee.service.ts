@@ -8,7 +8,7 @@ import {
 export type LiveEmployee = {
   matricule: string
   names: string
-  sex: string
+  sex: string | null
   dateBirth: Date
   dateEng: Date | null
   designation: string | null

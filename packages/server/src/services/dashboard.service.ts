@@ -1,4 +1,12 @@
-import type { DashboardResponse, User } from '@personel-management-app/shared'
+import { Prisma } from '@prisma/client'
+import type {
+  DashboardMonthBar,
+  DashboardResponse,
+  DashboardSexBar,
+  DashboardSlice,
+  DashboardWorkforce,
+  User,
+} from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import {
   sectionIdsForUser,
@@ -7,6 +15,7 @@ import {
 import {
   resolveLiveEmployees,
   unitCodesMatch,
+  unitMatchIds,
 } from './live-employee.service.js'
 
 function inUnitScope(
@@ -80,7 +89,9 @@ export async function buildDashboard(user: User): Promise<DashboardResponse> {
     ? await allowanceCounts(unitIds)
     : null
 
-  return { scopeLabel, appyear, appraisals, allowances }
+  const workforce = await workforceCharts(appyear, unitIds)
+
+  return { scopeLabel, appyear, appraisals, allowances, workforce }
 }
 
 async function appraisalCounts(
@@ -166,4 +177,214 @@ async function allowanceCounts(
     else if (row.workflowStatus === 'REJECTED') counts.rejected += 1
   }
   return counts
+}
+
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
+
+function scopeSql(unitIds: string[] | null): Prisma.Sql {
+  if (unitIds === null) return Prisma.sql`TRUE`
+  const ids = unitMatchIds(unitIds)
+  if (ids.length === 0) return Prisma.sql`FALSE`
+  return Prisma.sql`e.currentUnitId IN (${Prisma.join(ids)})`
+}
+
+function countOf(value: bigint | number | null | undefined): number {
+  if (typeof value === 'bigint') return Number(value)
+  return value ?? 0
+}
+
+function labelOf(value: string | null | undefined, fallback: string): string {
+  const trimmed = value?.trim() ?? ''
+  return trimmed || fallback
+}
+
+function pivotSex(
+  rows: { label: string; sex: string; value: number }[],
+): DashboardSexBar[] {
+  const map = new Map<string, DashboardSexBar>()
+  for (const row of rows) {
+    const entry = map.get(row.label) ?? { label: row.label, male: 0, female: 0 }
+    if (row.sex === 'Male') entry.male += row.value
+    else if (row.sex === 'Female') entry.female += row.value
+    map.set(row.label, entry)
+  }
+  return [...map.values()]
+}
+
+function compareCategory(a: string, b: string): number {
+  const na = Number(a)
+  const nb = Number(b)
+  if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb
+  return a.localeCompare(b)
+}
+
+function topPlaces(rows: DashboardSlice[], limit: number): DashboardSlice[] {
+  const ranked = [...rows].sort((a, b) => b.value - a.value)
+  const top = ranked.slice(0, limit)
+  const rest = ranked.slice(limit).reduce((sum, row) => sum + row.value, 0)
+  if (rest > 0) top.push({ label: 'Other', value: rest })
+  return top
+}
+
+function emptyWorkforce(): DashboardWorkforce {
+  return {
+    sex: [],
+    category: [],
+    group: [],
+    workStatus: [],
+    place: [],
+    movement: MONTHS.map((label) => ({
+      label,
+      engagements: 0,
+      departures: 0,
+    })),
+  }
+}
+
+async function workforceCharts(
+  appyear: number | null,
+  unitIds: string[] | null,
+): Promise<DashboardWorkforce> {
+  const year = appyear ?? new Date().getFullYear()
+  if (unitIds && unitIds.length === 0) return emptyWorkforce()
+
+  const scope = scopeSql(unitIds)
+  const [sexRows, categoryRows, groupRows, workRows, placeRows, engagementRows, departureRows] =
+    await Promise.all([
+      prisma.$queryRaw<{ sex: string; c: bigint }[]>(Prisma.sql`
+        SELECT e.sex AS sex, COUNT(*) AS c
+        FROM tbl_employee e
+        WHERE e.active = 1
+          AND e.sex IN ('Male', 'Female')
+          AND ${scope}
+        GROUP BY e.sex
+      `),
+      prisma.$queryRaw<{ category: string | null; sex: string; c: bigint }[]>(Prisma.sql`
+        SELECT c.category AS category, e.sex AS sex, COUNT(*) AS c
+        FROM tbl_emp_class c
+        INNER JOIN tbl_employee e ON e.matricule = c.matricule
+        WHERE c.current = 1
+          AND c.workflowStatus = 'VALIDATED'
+          AND e.active = 1
+          AND e.sex IN ('Male', 'Female')
+          AND ${scope}
+        GROUP BY c.category, e.sex
+      `),
+      prisma.$queryRaw<{ group_name: string | null; sex: string; c: bigint }[]>(Prisma.sql`
+        SELECT g.group_name AS group_name, e.sex AS sex, COUNT(*) AS c
+        FROM tbl_employee e
+        INNER JOIN tbl_unit u ON u.id = e.currentUnitId
+        INNER JOIN tbl_group g ON g.id = u.groupid
+        WHERE e.active = 1
+          AND e.sex IN ('Male', 'Female')
+          AND ${scope}
+        GROUP BY g.group_name, e.sex
+      `),
+      prisma.$queryRaw<{ workStat: string | null; c: bigint }[]>(Prisma.sql`
+        SELECT em.workStat AS workStat, COUNT(*) AS c
+        FROM tbl_emp_employment em
+        INNER JOIN tbl_employee e ON e.matricule = em.matricule
+        WHERE em.current = 1
+          AND em.workflowStatus = 'VALIDATED'
+          AND e.active = 1
+          AND ${scope}
+        GROUP BY em.workStat
+      `),
+      prisma.$queryRaw<{ placeEng: string | null; c: bigint }[]>(Prisma.sql`
+        SELECT em.placeEng AS placeEng, COUNT(*) AS c
+        FROM tbl_emp_employment em
+        INNER JOIN tbl_employee e ON e.matricule = em.matricule
+        WHERE em.current = 1
+          AND em.workflowStatus = 'VALIDATED'
+          AND e.active = 1
+          AND ${scope}
+        GROUP BY em.placeEng
+      `),
+      prisma.$queryRaw<{ month: number | bigint; c: bigint }[]>(Prisma.sql`
+        SELECT MONTH(em.dateEng) AS month, COUNT(*) AS c
+        FROM tbl_emp_employment em
+        INNER JOIN tbl_employee e ON e.matricule = em.matricule
+        WHERE em.current = 1
+          AND em.workflowStatus = 'VALIDATED'
+          AND e.active = 1
+          AND YEAR(em.dateEng) = ${year}
+          AND ${scope}
+        GROUP BY MONTH(em.dateEng)
+      `),
+      prisma.$queryRaw<{ month: number | bigint; c: bigint }[]>(Prisma.sql`
+        SELECT MONTH(d.effectiveDate) AS month, COUNT(*) AS c
+        FROM tbl_emp_departure d
+        INNER JOIN tbl_employee e ON e.matricule = d.matricule
+        WHERE d.workflowStatus = 'VALIDATED'
+          AND d.effectiveDate >= '1970-01-01'
+          AND YEAR(d.effectiveDate) = ${year}
+          AND e.active = 1
+          AND ${scope}
+        GROUP BY MONTH(d.effectiveDate)
+      `),
+    ])
+
+  const sexOrder = ['Male', 'Female']
+  const sex: DashboardSlice[] = sexOrder.map((label) => ({
+    label,
+    value: countOf(sexRows.find((row) => row.sex === label)?.c),
+  }))
+
+  const category = pivotSex(
+    categoryRows.map((row) => ({
+      label: labelOf(row.category, 'Unknown'),
+      sex: row.sex,
+      value: countOf(row.c),
+    })),
+  ).sort((a, b) => compareCategory(a.label, b.label))
+
+  const group = pivotSex(
+    groupRows.map((row) => ({
+      label: labelOf(row.group_name, 'Unknown'),
+      sex: row.sex,
+      value: countOf(row.c),
+    })),
+  ).sort((a, b) => a.label.localeCompare(b.label))
+
+  const workStatus = workRows
+    .map((row) => ({
+      label: labelOf(row.workStat, 'Unknown'),
+      value: countOf(row.c),
+    }))
+    .sort((a, b) => b.value - a.value)
+
+  const place = topPlaces(
+    placeRows.map((row) => ({
+      label: labelOf(row.placeEng, 'Unknown'),
+      value: countOf(row.c),
+    })),
+    8,
+  )
+
+  const engagements = new Map(
+    engagementRows.map((row) => [countOf(row.month), countOf(row.c)]),
+  )
+  const departures = new Map(
+    departureRows.map((row) => [countOf(row.month), countOf(row.c)]),
+  )
+  const movement: DashboardMonthBar[] = MONTHS.map((label, index) => ({
+    label,
+    engagements: engagements.get(index + 1) ?? 0,
+    departures: departures.get(index + 1) ?? 0,
+  }))
+
+  return { sex, category, group, workStatus, place, movement }
 }

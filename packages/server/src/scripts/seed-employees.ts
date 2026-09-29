@@ -296,6 +296,14 @@ async function snapshotFromDatabase() {
   )
 }
 
+function mapSex(value: string | null): 'Male' | 'Female' | null {
+  const raw = value?.trim() ?? ''
+  if (raw === 'M' || raw === 'Male') return 'Male'
+  if (raw === 'F' || raw === 'Female') return 'Female'
+  if (!raw) return null
+  throw new Error(`Unknown sex value: ${raw}`)
+}
+
 function mapEmployee(
   row: EmployeeRow,
 ): Prisma.tbl_employeeCreateManyInput {
@@ -305,7 +313,7 @@ function mapEmployee(
     firstname: row.firstname,
     dateBirth: parseDate(row.dateBirth),
     placeBirth: row.placeBirth,
-    sex: row.sex,
+    sex: mapSex(row.sex),
     nationality: row.nationality,
     // Snapshot imports are live historical records, not pending submissions.
     workflowStatus: 'VALIDATED',

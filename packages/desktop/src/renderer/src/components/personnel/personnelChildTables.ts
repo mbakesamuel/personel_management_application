@@ -6,10 +6,10 @@ import {
 export type ChildResourceKey =
   | 'identifications'
   | 'insurances'
-  | 'marital-statuses'
   | 'employments'
   | 'family-infos'
   | 'kin-infos'
+  | 'diplomas'
   | 'departures'
   | 'employee-movements'
   | 'employee-classifications'
@@ -17,11 +17,14 @@ export type ChildResourceKey =
 export type LookupKind =
   | 'marital'
   | 'insuranceCentre'
+  | 'diploma'
   | 'transferType'
   | 'departure'
   | 'unit'
   | 'unitAll'
   | 'contractType'
+  | 'familyRelationship'
+  | 'sexKind'
 
 export type ChildFieldType = 'text' | 'date' | 'number' | 'select'
 
@@ -42,6 +45,7 @@ export type ChildField = {
 export type PersonnelChildTableConfig = {
   id: ChildResourceKey
   label: string
+  description: string
   columns: ChildColumn[]
   fields: ChildField[]
 }
@@ -239,7 +243,9 @@ export function resolveMovementFromUnit(
 export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
   {
     id: 'employments',
-    label: 'Employments',
+    label: 'Employment Details',
+    description:
+      'Engagement date, job, workplace, and the contract that covers the post.',
     columns: [
       {
         key: 'dateEng',
@@ -284,7 +290,9 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
   },
   {
     id: 'employee-movements',
-    label: 'Movements',
+    label: 'Transfer/Movements',
+    description:
+      'Transfers between units, the effective date, and the position held.',
     columns: [
       {
         key: 'From_unit',
@@ -335,7 +343,8 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
   },
   {
     id: 'employee-classifications',
-    label: 'Classifications',
+    label: 'Classification Profile',
+    description: 'Category, echelon, and the letter that sets the classification.',
     columns: [
       { key: 'category', label: 'Category', getValue: (r) => str(r.category) },
       { key: 'echelon', label: 'Echelon', getValue: (r) => str(r.echelon) },
@@ -365,7 +374,8 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
   },
   {
     id: 'departures',
-    label: 'Departures',
+    label: 'Service Departure',
+    description: 'How and when the person left service.',
     columns: [
       {
         key: 'departure',
@@ -396,51 +406,80 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
   },
   {
     id: 'family-infos',
-    label: 'Family infos',
+    label: 'Family Details',
+    description: 'Spouse and children, with birth details and certificates.',
     columns: [
-      { key: 'noSpouses', label: 'Spouses', getValue: (r) => str(r.noSpouses) },
+      { key: 'fullName', label: 'Name', getValue: (r) => str(r.fullName) },
       {
-        key: 'noChildren',
-        label: 'Children',
-        getValue: (r) => str(r.noChildren),
+        key: 'relationship',
+        label: 'Relationship',
+        getValue: (r) =>
+          r.relationship === 'SPOUSE'
+            ? 'Spouse'
+            : r.relationship === 'CHILD'
+              ? 'Child'
+              : str(r.relationship),
       },
-      { key: 'relCode', label: 'Rel. code', getValue: (r) => str(r.relCode) },
       {
-        key: 'effectiveDate',
-        label: 'Effective',
-        getValue: (r) => formatDateCell(r.effectiveDate),
+        key: 'sex',
+        label: 'Sex',
+        getValue: (r) => str(r.sex),
+      },
+      {
+        key: 'dateOfBirth',
+        label: 'Date of birth',
+        getValue: (r) => formatDateCell(r.dateOfBirth),
+      },
+      {
+        key: 'applicationDate',
+        label: 'Application date',
+        getValue: (r) => formatDateCell(r.applicationDate),
+      },
+      {
+        key: 'certificateNo',
+        label: 'Certificate no',
+        getValue: (r) => str(r.certificateNo),
       },
     ],
     fields: [
-      { name: 'noSpouses', label: 'No. spouses', type: 'number' },
-      { name: 'noChildren', label: 'No. children', type: 'number' },
-      { name: 'relCode', label: 'Relation code', type: 'text' },
-      { name: 'effectiveDate', label: 'Effective date', type: 'date' },
-    ],
-  },
-  {
-    id: 'marital-statuses',
-    label: 'Marital statuses',
-    columns: [
+      { name: 'fullName', label: 'Name', type: 'text', required: true },
       {
-        key: 'status',
-        label: 'Status',
-        getValue: (r) => nestedStr(r, ['maritalStatus', 'marital_status']),
-      },
-    ],
-    fields: [
-      {
-        name: 'maritalStatusId',
-        label: 'Marital status',
+        name: 'relationship',
+        label: 'Relationship',
         type: 'select',
         required: true,
-        lookup: 'marital',
+        lookup: 'familyRelationship',
+      },
+      {
+        name: 'sex',
+        label: 'Sex',
+        type: 'select',
+        required: true,
+        lookup: 'sexKind',
+      },
+      {
+        name: 'dateOfBirth',
+        label: 'Date of birth',
+        type: 'date',
+        required: true,
+      },
+      {
+        name: 'applicationDate',
+        label: 'Application date',
+        type: 'date',
+        required: true,
+      },
+      {
+        name: 'certificateNo',
+        label: 'Certificate no',
+        type: 'text',
       },
     ],
   },
   {
     id: 'insurances',
-    label: 'Insurances',
+    label: 'Registration with CNPS',
+    description: 'Insurance number, centre, and registration date.',
     columns: [
       { key: 'ins_number', label: 'Number', getValue: (r) => str(r.ins_number) },
       {
@@ -468,7 +507,8 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
   },
   {
     id: 'kin-infos',
-    label: 'Next of kin',
+    label: 'Next-of-Kin Management',
+    description: 'Who to contact, their relation, and address.',
     columns: [
       { key: 'nextKinName', label: 'Name', getValue: (r) => str(r.nextKinName) },
       {
@@ -495,8 +535,45 @@ export const PERSONNEL_CHILD_TABLES: PersonnelChildTableConfig[] = [
     ],
   },
   {
+    id: 'diplomas',
+    label: 'Diploma',
+    description: 'Qualification, subject, institution, and the date it was obtained.',
+    columns: [
+      {
+        key: 'diploma',
+        label: 'Diploma',
+        getValue: (r) => nestedStr(r, ['diploma', 'deplomaName']),
+      },
+      { key: 'subject', label: 'Subject', getValue: (r) => str(r.subject) },
+      {
+        key: 'dateObtained',
+        label: 'Obtained',
+        getValue: (r) => formatDateCell(r.dateObtained),
+      },
+    ],
+    fields: [
+      {
+        name: 'diplomaId',
+        label: 'Diploma',
+        type: 'select',
+        required: true,
+        lookup: 'diploma',
+      },
+      {
+        name: 'dateObtained',
+        label: 'Date obtained',
+        type: 'date',
+        required: true,
+      },
+      { name: 'subject', label: 'Subject', type: 'text' },
+      { name: 'institution', label: 'Institution', type: 'text' },
+      { name: 'remarks', label: 'Remarks', type: 'text' },
+    ],
+  },
+  {
     id: 'identifications',
-    label: 'Identifications',
+    label: 'National Identification',
+    description: 'ID number, where it was issued, and when it expires.',
     columns: [
       { key: 'idNumber', label: 'ID number', getValue: (r) => str(r.idNumber) },
       {

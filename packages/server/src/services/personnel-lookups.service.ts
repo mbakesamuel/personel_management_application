@@ -110,7 +110,7 @@ export const divisionLookup = createLookupService(
 )
 export const languageLookup = createLookupService(
   'Language',
-  asLookup(prisma.tbl_Language),
+  asLookup(prisma.tbl_language),
 )
 export const maritalStatusLookup = createLookupService(
   'Marital status',
@@ -128,7 +128,7 @@ export const sanctionLookup = createLookupService(
   'Sanction',
   asLookup(prisma.tbl_sanction),
 )
-export const sexLookup = createLookupService('Sex', asLookup(prisma.tbl_Sex))
+export const sexLookup = createLookupService('Sex', asLookup(prisma.tbl_sex))
 export const classificationLookup = createLookupService(
   'Classification',
   asLookup(prisma.tbl_classification),

@@ -9,6 +9,7 @@ import {
   Check,
   Eye,
   FolderOpen,
+  MoreHorizontal,
   Pencil,
   Plus,
   Users,
@@ -37,6 +38,13 @@ import {
   type PersonnelChildTableConfig,
 } from './personnel/personnelChildTables'
 import { Button } from '@/components/ui/button'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -73,6 +81,9 @@ type FormState = {
   sex: string
   nationality: string
   active: boolean
+  image: string | null
+  imageTouched: boolean
+  hasImage: boolean
 }
 
 type SortBy = 'matricule' | 'name'
@@ -88,6 +99,11 @@ const FUTURE_TABS: Array<{ value: TabKey; label: string; disabled?: boolean }> =
     { value: 'salary', label: 'Salary', disabled: true },
   ]
 
+function asEmployeeSex(value: string): 'Male' | 'Female' | null {
+  const sex = value.trim()
+  return sex === 'Male' || sex === 'Female' ? sex : null
+}
+
 function emptyForm(): FormState {
   return {
     matricule: '',
@@ -98,7 +114,79 @@ function emptyForm(): FormState {
     sex: '',
     nationality: '',
     active: true,
+    image: null,
+    imageTouched: false,
+    hasImage: false,
   }
+}
+
+function initials(row: Pick<EmployeeOption, 'firstname' | 'name'>): string {
+  const first = row.firstname?.trim().charAt(0) ?? ''
+  const last = row.name.trim().charAt(0) ?? ''
+  const letters = `${first}${last}`.toUpperCase()
+  return letters || '?'
+}
+
+function displayName(row: Pick<EmployeeOption, 'firstname' | 'name'>): string {
+  return [row.firstname?.trim(), row.name.trim()].filter(Boolean).join(' ')
+}
+
+const MAX_IMAGE_BYTES = 1_500_000
+
+function EmployeeAvatar({
+  matricule,
+  hasImage,
+  preview,
+  fallback,
+}: {
+  matricule?: string
+  hasImage: boolean
+  preview?: string | null
+  fallback: string
+}) {
+  const [src, setSrc] = useState<string | null>(preview ?? null)
+
+  useEffect(() => {
+    if (preview) {
+      setSrc(preview)
+      return
+    }
+    if (!hasImage || !matricule) {
+      setSrc(null)
+      return
+    }
+    let objectUrl: string | null = null
+    let cancelled = false
+    void (async () => {
+      try {
+        const client = await createApiClient()
+        const res = await client.personnel.employees[':matricule'].image.$get({
+          param: { matricule },
+        })
+        if (!res.ok || cancelled) return
+        const blob = await res.blob()
+        objectUrl = URL.createObjectURL(blob)
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl)
+          return
+        }
+        setSrc(objectUrl)
+      } catch {
+        if (!cancelled) setSrc(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [matricule, hasImage, preview])
+
+  return (
+    <Avatar>
+      {src ? <AvatarImage src={src} alt="" /> : null}
+      <AvatarFallback>{fallback}</AvatarFallback>
+    </Avatar>
+  )
 }
 
 function canMutate(status: WorkflowStatus, canEditValidated: boolean) {
@@ -261,9 +349,12 @@ export function PersonnelConsole({
       firstname: row.firstname ?? '',
       dateBirth: row.dateBirth,
       placeBirth: row.placeBirth,
-      sex: row.sex,
+      sex: row.sex ?? '',
       nationality: row.nationality ?? '',
       active: row.active,
+      image: null,
+      imageTouched: false,
+      hasImage: row.hasImage === true,
     })
     setFormError(null)
     setDialogOpen(true)
@@ -316,25 +407,25 @@ export function PersonnelConsole({
     setLoading(true)
     try {
       const client = await createApiClient()
+      const sex = asEmployeeSex(form.sex)
       if (dialogMode === 'create') {
+        const matricule = form.matricule.trim()
+        const name = form.name.trim()
+        const dateBirth = form.dateBirth.trim()
+        const placeBirth = form.placeBirth.trim()
+        if (!matricule || !name || !dateBirth || !placeBirth || !sex) {
+          throw new Error('Matricule, surname, birth date, place, and sex are required')
+        }
         const payload = {
-          matricule: form.matricule.trim(),
-          name: form.name.trim(),
+          matricule,
+          name,
           firstname: form.firstname.trim() || null,
-          dateBirth: form.dateBirth.trim(),
-          placeBirth: form.placeBirth.trim(),
-          sex: form.sex.trim(),
+          dateBirth,
+          placeBirth,
+          sex,
           nationality: form.nationality.trim() || null,
           active: form.active,
-        }
-        if (
-          !payload.matricule ||
-          !payload.name ||
-          !payload.dateBirth ||
-          !payload.placeBirth ||
-          !payload.sex
-        ) {
-          throw new Error('Matricule, surname, birth date, place, and sex are required')
+          ...(form.image ? { image: form.image } : {}),
         }
         const res = await client.personnel.employees.$post({ json: payload })
         if (!res.ok) {
@@ -348,9 +439,10 @@ export function PersonnelConsole({
           firstname: form.firstname.trim() || null,
           dateBirth: form.dateBirth.trim(),
           placeBirth: form.placeBirth.trim(),
-          sex: form.sex.trim(),
+          sex: sex ?? undefined,
           nationality: form.nationality.trim() || null,
           active: form.active,
+          ...(form.imageTouched ? { image: form.image } : {}),
         }
         const res = await client.personnel.employees[':matricule'].$patch({
           param: { matricule: editingMatricule },
@@ -404,7 +496,7 @@ export function PersonnelConsole({
         ['First name', viewRow.firstname ?? '—'],
         ['Date of birth', viewRow.dateBirth],
         ['Place of birth', viewRow.placeBirth],
-        ['Sex', viewRow.sex],
+        ['Sex', viewRow.sex ?? '—'],
         ['Nationality', viewRow.nationality ?? '—'],
         ['Active', viewRow.active ? 'Yes' : 'No'],
         ['Status', viewRow.workflowStatus],
@@ -537,18 +629,21 @@ export function PersonnelConsole({
                     <button
                       key={table.id}
                       type="button"
-                      className="flex min-h-0 items-center justify-center rounded-xl border bg-card px-3 py-2 text-center text-sm font-medium shadow-xs transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="flex min-h-0 flex-col items-start justify-center gap-1 rounded-xl border bg-card px-3 py-2 text-left shadow-xs transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       onClick={() => setChildTable(table)}
                     >
-                      {table.label}
+                      <span className="text-sm font-medium">{table.label}</span>
+                      <span className="text-xs leading-snug text-muted-foreground">
+                        {table.description}
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
               <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                Select an employee on the List tab, then open General (folder
-                icon) to manage related records.
+                Select an employee on the List tab, then open General from the name
+                or the actions menu.
               </div>
             )
           ) : (
@@ -564,26 +659,27 @@ export function PersonnelConsole({
                 />
                 <CatalogSortableTh
                   column="name"
-                  label="Surname"
+                  label="Name"
                   sortKey={sortBy}
                   sortDir="asc"
                   onSort={(col) => setSort(col as SortBy)}
                 />
-                <TableHead>First name</TableHead>
+                <TableHead>Unit</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-44 text-right">Actions</TableHead>
+                <TableHead>Engaged</TableHead>
+                <TableHead className="w-16 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading && items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
+                  <TableCell colSpan={6} className="text-muted-foreground">
                     Loading…
                   </TableCell>
                 </TableRow>
               ) : items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
+                  <TableCell colSpan={6} className="text-muted-foreground">
                     {search.trim()
                       ? 'No employees match the search.'
                       : 'No employees found.'}
@@ -593,82 +689,88 @@ export function PersonnelConsole({
                 items.map((row) => (
                   <TableRow key={row.matricule}>
                     <TableCell className="font-medium">{row.matricule}</TableCell>
-                    <TableCell>{row.name}</TableCell>
-                    <TableCell>{row.firstname ?? '—'}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <EmployeeAvatar
+                          matricule={row.matricule}
+                          hasImage={row.hasImage === true}
+                          fallback={initials(row)}
+                        />
+                        <button
+                          type="button"
+                          className="text-left text-sm font-medium text-primary hover:underline"
+                          onClick={() => openGeneral(row)}
+                        >
+                          {displayName(row)}
+                        </button>
+                      </div>
+                    </TableCell>
+                    <TableCell>{row.unitName?.trim() || '—'}</TableCell>
                     <TableCell>
                       <WorkflowBadge status={row.workflowStatus} />
                     </TableCell>
+                    <TableCell>{row.dateEng ?? '—'}</TableCell>
                     <TableCell className="text-right">
-                      <div className="inline-flex items-center gap-1">
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={() => openGeneral(row)}
-                          aria-label="Open General"
-                          title="Open General"
-                        >
-                          <FolderOpen className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={() => setViewRow(row)}
-                          aria-label="View"
-                        >
-                          <Eye className="size-4" />
-                        </Button>
-                        {canMutate(
-                          row.workflowStatus,
-                          currentUser.permissions.canEditValidated,
-                        ) ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                           <Button
                             type="button"
                             size="icon-sm"
                             variant="ghost"
-                            onClick={() => openEdit(row)}
-                            aria-label="Edit"
+                            aria-label="Actions"
                           >
-                            <Pencil className="size-4" />
+                            <MoreHorizontal className="size-4" />
                           </Button>
-                        ) : null}
-                        {canReviewWorkflow &&
-                        row.workflowStatus === 'PENDING' ? (
-                          <>
-                            <Button
-                              type="button"
-                              size="icon-sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setReviewNote('')
-                                setReviewAction({
-                                  kind: 'validate',
-                                  matricule: row.matricule,
-                                })
-                              }}
-                              aria-label="Validate"
-                            >
-                              <Check className="size-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon-sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setReviewNote('')
-                                setReviewAction({
-                                  kind: 'reject',
-                                  matricule: row.matricule,
-                                })
-                              }}
-                              aria-label="Reject"
-                            >
-                              <XCircle className="size-4" />
-                            </Button>
-                          </>
-                        ) : null}
-                      </div>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => openGeneral(row)}>
+                            <FolderOpen className="size-4" />
+                            Open General
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setViewRow(row)}>
+                            <Eye className="size-4" />
+                            View
+                          </DropdownMenuItem>
+                          {canMutate(
+                            row.workflowStatus,
+                            currentUser.permissions.canEditValidated,
+                          ) ? (
+                            <DropdownMenuItem onSelect={() => openEdit(row)}>
+                              <Pencil className="size-4" />
+                              Edit
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canReviewWorkflow &&
+                          row.workflowStatus === 'PENDING' ? (
+                            <>
+                              <DropdownMenuItem
+                                onSelect={() => {
+                                  setReviewNote('')
+                                  setReviewAction({
+                                    kind: 'validate',
+                                    matricule: row.matricule,
+                                  })
+                                }}
+                              >
+                                <Check className="size-4" />
+                                Validate
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => {
+                                  setReviewNote('')
+                                  setReviewAction({
+                                    kind: 'reject',
+                                    matricule: row.matricule,
+                                  })
+                                }}
+                              >
+                                <XCircle className="size-4" />
+                                Reject
+                              </DropdownMenuItem>
+                            </>
+                          ) : null}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))
@@ -713,6 +815,66 @@ export function PersonnelConsole({
             Matricule <strong>{form.matricule}</strong> cannot be changed.
           </FormDialogHint>
         )}
+        <FormDialogRow label="Photo" htmlFor="emp-image">
+          <div className="flex items-center gap-3">
+            <EmployeeAvatar
+              matricule={form.matricule || undefined}
+              hasImage={!form.imageTouched && form.hasImage}
+              preview={form.imageTouched ? form.image : null}
+              fallback={initials({
+                firstname: form.firstname,
+                name: form.name || ' ',
+              })}
+            />
+            <Input
+              id="emp-image"
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (!file) return
+                if (!file.type.startsWith('image/')) {
+                  setFormError('Choose an image file')
+                  return
+                }
+                if (file.size > MAX_IMAGE_BYTES) {
+                  setFormError('Image must be 1.5 MB or smaller')
+                  return
+                }
+                const reader = new FileReader()
+                reader.onload = () => {
+                  const result =
+                    typeof reader.result === 'string' ? reader.result : null
+                  setFormError(null)
+                  setForm((prev) => ({
+                    ...prev,
+                    image: result,
+                    imageTouched: true,
+                  }))
+                }
+                reader.readAsDataURL(file)
+              }}
+            />
+            {form.imageTouched || form.hasImage ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    image: null,
+                    imageTouched: true,
+                    hasImage: false,
+                  }))
+                }
+              >
+                Remove
+              </Button>
+            ) : null}
+          </div>
+        </FormDialogRow>
         <FormDialogRow label="Surname" htmlFor="emp-name">
           <Input
             id="emp-name"
@@ -761,8 +923,8 @@ export function PersonnelConsole({
               <SelectValue placeholder="Select…" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="M">M</SelectItem>
-              <SelectItem value="F">F</SelectItem>
+              <SelectItem value="Male">Male</SelectItem>
+              <SelectItem value="Female">Female</SelectItem>
             </SelectContent>
           </Select>
         </FormDialogRow>
@@ -803,6 +965,18 @@ export function PersonnelConsole({
         title="Employee"
         subtitle={viewRow ? `${viewRow.matricule} — ${viewRow.name}` : undefined}
       >
+        <div className="mb-4 flex items-center gap-3">
+          {viewRow ? (
+            <EmployeeAvatar
+              matricule={viewRow.matricule}
+              hasImage={viewRow.hasImage === true}
+              fallback={initials(viewRow)}
+            />
+          ) : null}
+          <p className="m-0 text-sm font-medium">
+            {viewRow ? displayName(viewRow) : ''}
+          </p>
+        </div>
         <CatalogViewGrid rows={viewRows} />
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
           {viewRow &&

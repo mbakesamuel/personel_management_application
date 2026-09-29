@@ -16,7 +16,7 @@ const tablesWithUpdatedAt = [
   'tbl_emp_marital_status',
   'tbl_emp_employment',
   'tbl_emp_contract',
-  'tbl_emp_family',
+  'tbl_emp_family_member',
   'tbl_emp_nextkin',
   'tbl_emp_departure',
   'tbl_emp_movement',
@@ -118,6 +118,40 @@ await fix(
      NOW()
    )
    WHERE CAST(effectiveDate AS CHAR) LIKE '0000%'`,
+)
+
+await fix(
+  'tbl_emp_family_member.applicationDate',
+  `UPDATE tbl_emp_family_member
+   SET applicationDate = '1000-01-01 00:00:00'
+   WHERE CAST(applicationDate AS CHAR) LIKE '0000%'`,
+)
+
+await fix(
+  'tbl_emp_nextkin.effectiveDate',
+  `UPDATE tbl_emp_nextkin
+   SET effectiveDate = '1000-01-01 00:00:00'
+   WHERE CAST(effectiveDate AS CHAR) LIKE '0000%'`,
+)
+
+await fix(
+  'tbl_insurance_centre.updatedAt',
+  `UPDATE tbl_insurance_centre
+   SET updatedAt = COALESCE(
+     NULLIF(createdAt, '0000-00-00 00:00:00'),
+     NOW()
+   )
+   WHERE CAST(updatedAt AS CHAR) LIKE '0000%'`,
+)
+
+await fix(
+  'tbl_diploma.updatedAt',
+  `UPDATE tbl_diploma
+   SET updatedAt = COALESCE(
+     NULLIF(createdAt, '0000-00-00 00:00:00'),
+     NOW()
+   )
+   WHERE CAST(updatedAt AS CHAR) LIKE '0000%'`,
 )
 
 const employee = await prisma.tbl_employee.findUnique({

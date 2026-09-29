@@ -15,6 +15,7 @@ import {
   employeeService,
   employmentService,
   familyInfoService,
+  diplomaService,
   identificationService,
   insuranceService,
   kinInfoService,
@@ -137,10 +138,12 @@ const ContractUpdateSchema = z.object({
 
 const FamilyCreateSchema = z.object({
   matricule: z.string().min(1),
-  noSpouses: optionalNumber,
-  noChildren: optionalNumber,
-  relCode: optionalString,
-  effectiveDate: optionalString,
+  fullName: z.string().min(1),
+  relationship: z.enum(['SPOUSE', 'CHILD']),
+  sex: z.enum(['Male', 'Female']),
+  dateOfBirth: z.string().min(1),
+  applicationDate: z.string().min(1),
+  certificateNo: optionalString,
 })
 const FamilyUpdateSchema = FamilyCreateSchema.omit({ matricule: true }).partial()
 
@@ -152,6 +155,16 @@ const KinCreateSchema = z.object({
   effectiveDate: z.string().min(1),
 })
 const KinUpdateSchema = KinCreateSchema.omit({ matricule: true }).partial()
+
+const DiplomaCreateSchema = z.object({
+  matricule: z.string().min(1),
+  diplomaId: z.string().min(1),
+  dateObtained: z.string().min(1),
+  subject: optionalString,
+  institution: optionalString,
+  remarks: optionalString,
+})
+const DiplomaUpdateSchema = DiplomaCreateSchema.omit({ matricule: true }).partial()
 
 const DepartureCreateSchema = z.object({
   matricule: z.string().min(1),
@@ -436,6 +449,16 @@ const employees = new Hono<{ Variables: AppVariables }>()
         )
       }),
   )
+  .get('/:matricule/image', zValidator('param', MatriculeParam), async (c) => {
+    const { matricule } = c.req.valid('param')
+    await assertEmployeeInScope(c.get('currentUser'), matricule)
+    const image = await employeeService.getImage(matricule)
+    if (!image) return c.json({ error: 'Image not found' }, 404)
+    return new Response(Uint8Array.from(image.bytes), {
+      status: 200,
+      headers: { 'Content-Type': image.mime },
+    })
+  })
   .get('/:matricule', zValidator('param', MatriculeParam), async (c) =>
     handle(c, async () => {
       const { matricule } = c.req.valid('param')
@@ -566,6 +589,20 @@ export const personnel = new Hono<{ Variables: AppVariables }>()
       reject: (userId, id, review) => kinInfoService.reject(userId, id, review),
       createSchema: KinCreateSchema,
       updateSchema: KinUpdateSchema,
+    }),
+  )
+  .route(
+    '/diplomas',
+    childRouter({
+      list: (query) => diplomaService.list(query),
+      get: (id) => diplomaService.get(id),
+      create: (userId, data) => diplomaService.create(userId, data),
+      update: (userId, id, data) => diplomaService.update(userId, id, data),
+      validate: (userId, id, review) =>
+        diplomaService.validate(userId, id, review),
+      reject: (userId, id, review) => diplomaService.reject(userId, id, review),
+      createSchema: DiplomaCreateSchema,
+      updateSchema: DiplomaUpdateSchema,
     }),
   )
   .route(

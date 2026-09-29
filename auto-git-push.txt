@@ -1,0 +1,33 @@
+steps to setup
+Create a bare repo on the server:
+
+bash
+mkdir -p ~/repos/personel_management_app.git
+cd ~/repos/personel_management_app.git
+git init --bare
+Add remote on your dev machine:
+
+bash
+git remote add production server_admin@172.16.2.9:~/repos/personel_management_app.git
+Set up post‑receive hook in the bare repo:
+
+bash
+cd ~/repos/personel_management_app.git/hooks
+nano post-receive
+Add:
+
+bash
+#!/bin/bash
+GIT_WORK_TREE=/home/server_admin/personel_management_application git checkout -f
+cd /home/server_admin/personel_management_application/packages/server
+npm install --production
+pm2 restart perf-appraisal-server
+Then make it executable:
+
+bash
+chmod +x post-receive
+Push code to server:
+
+bash
+git push production main
+→ This will auto‑deploy into /home/server_admin/personel_management_application and restart the server.
