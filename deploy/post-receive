@@ -1,0 +1,42 @@
+#!/bin/bash
+set -euo pipefail
+
+# A non-interactive push does not load nvm.
+# Prisma 7 requires Node 22.12+ or 24+. PM2 for the other apps was
+# installed with Node 23, so keep that CLI and run this app on Node 24.
+NODE24="/home/server_admin/.nvm/versions/node/v24.21.0/bin"
+NODE23="/home/server_admin/.nvm/versions/node/v23.11.1/bin"
+export PATH="${NODE24}:${PATH}"
+
+APP_DIR="/home/server_admin/personel_management_application"
+GIT_DIR="/home/server_admin/repos/personel_management_app.git"
+PM2="${NODE23}/pm2"
+ECOSYSTEM="/home/server_admin/pm2/ecosystem.config.cjs"
+
+while read -r _oldrev _newrev refname; do
+  if [ "$refname" != "refs/heads/main" ]; then
+    echo "Skipping $refname"
+    continue
+  fi
+
+  echo "Checking out main into $APP_DIR"
+  git --git-dir="$GIT_DIR" --work-tree="$APP_DIR" checkout -f main
+
+  cd "$APP_DIR"
+  echo "Installing workspace dependencies"
+  # Skip dependency scripts so the desktop Electron download does not run.
+  # Shared, Prisma, and the server are built explicitly below.
+  npm install --ignore-scripts
+  echo "Building shared, generating Prisma client, compiling the server"
+  npm run build:shared
+  npm run db:generate
+  npm run build:server
+
+  if "$PM2" describe personel-management-server >/dev/null 2>&1; then
+    "$PM2" restart personel-management-server
+  else
+    "$PM2" start "$ECOSYSTEM"
+  fi
+  "$PM2" save
+  echo "Deployed personel-management-server"
+done
