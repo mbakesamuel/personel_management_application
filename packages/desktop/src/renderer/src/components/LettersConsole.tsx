@@ -7,9 +7,9 @@ import type {
   UnitOption,
   User,
 } from "@personel-management-app/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createApiClient } from "../api/client";
-import { LOGO_DATA_URI, LOGO_SRC } from "../lib/logo";
+import { LOGO_DATA_URI } from "../lib/logo";
 import { ReportPreviewConsole } from "./ReportPreviewConsole";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -50,89 +50,6 @@ function renderMemoDate(value: string): string {
   return escapeHtml(value).replace(
     /^(\d+)(st|nd|rd|th)/i,
     "$1<sup>$2</sup>",
-  );
-}
-
-function MemoPage({ letter }: { letter: AppraisalLetter }) {
-  return (
-    <article className="memo-page mx-auto mb-8 max-w-[210mm] bg-white p-8 font-serif text-[14px] leading-[1.5] text-black shadow-sm">
-      <header className="text-center">
-        <h1 className="m-0 text-[14px] font-bold uppercase tracking-wide leading-[1.5]">
-          Cameroon Development Corporation SOE
-        </h1>
-        <img
-          className="mx-auto mt-1 block h-14 object-contain"
-          src={LOGO_SRC}
-          alt="Cameroon Development Corporation"
-        />
-        <p className="m-0 mt-1 text-[14px] font-semibold uppercase underline leading-[1.5]">
-          Inter-Departmental Memo
-        </p>
-      </header>
-
-      <div className="mt-4 grid grid-cols-2 border-y-2 border-black text-[14px] leading-[1.5]">
-        <div className="border-r border-black">
-          <div className="border-b border-black px-2 py-1 font-semibold uppercase">
-            From: {letter.fromTitle}
-          </div>
-          <div className="px-2 py-1 uppercase">{letter.unitName ?? "—"}</div>
-        </div>
-        <div>
-          <div className="border-b border-black px-2 py-1">
-            To:{" "}
-            <span className="font-bold uppercase">
-              {letter.names ?? letter.matric}
-            </span>
-          </div>
-          <div className="border-b border-black px-2 py-1 uppercase">
-            ( {letter.designationLine || "—"} )
-          </div>
-          <div className="px-2 py-1 uppercase">
-            Thro&apos; {letter.throTitle ?? "HEAD OF SECTION"}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-start justify-between text-[14px] leading-[1.5]">
-        <div>
-          <div className="font-bold underline">CONFIDENTIAL</div>
-          <div className="mt-1 font-bold underline">MAT NO. {letter.matric}</div>
-        </div>
-        <div
-          className="[&_sup]:text-[0.7em]"
-          dangerouslySetInnerHTML={{ __html: renderMemoDate(letter.memoDate) }}
-        />
-      </div>
-
-      <h2 className="mt-6 text-center text-[14px] font-bold uppercase underline leading-[1.5]">
-        {letter.subject}
-      </h2>
-
-      <div className="mt-4 space-y-3 text-[14px] leading-[1.5]">
-        {letter.paragraphs.map((paragraph, index) => (
-          <p
-            key={`${letter.salaryReviewId}-${index}`}
-            className="m-0"
-            dangerouslySetInnerHTML={{ __html: renderRichText(paragraph) }}
-          />
-        ))}
-      </div>
-
-      <div className="mt-10 text-right text-[14px] leading-[1.5]">
-        <div className="font-bold italic underline uppercase">
-          {letter.signatoryName ?? "—"}
-        </div>
-        <div className="font-bold italic uppercase">
-          {letter.signatoryTitle ?? letter.fromTitle}
-        </div>
-      </div>
-
-      <ul className="mt-10 list-none space-y-0.5 p-0 text-[14px] leading-[1.5]">
-        {letter.cc.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </article>
   );
 }
 
@@ -211,7 +128,7 @@ function buildPrintHtml(letters: AppraisalLetter[]): string {
     .meta sup { font-size: 0.7em; }
     .confidential, .matric { font-weight: 700; text-decoration: underline; }
     .subject { text-align: center; text-transform: uppercase; text-decoration: underline; font-size: 14pt; line-height: 1.5; margin: 24px 0 16px; }
-    .body p { margin: 0 0 12px; font-size: 14pt; line-height: 1.5; }
+    .body p { margin: 0 0 12px; font-size: 12pt; line-height: 1.5; text-align: justify; }
     .sign { text-align: right; margin-top: 40px; font-size: 14pt; line-height: 1.5; }
     .sign .name { font-weight: 700; font-style: italic; text-decoration: underline; text-transform: uppercase; }
     .sign .title { font-weight: 700; font-style: italic; text-transform: uppercase; }
@@ -374,6 +291,10 @@ export function LettersConsole({
     appyear != null
       ? `appraisal-letters-${appyear}.pdf`
       : "appraisal-letters.pdf";
+  const printHtml = useMemo(
+    () => (letters.length > 0 ? buildPrintHtml(letters) : ""),
+    [letters],
+  );
 
   return (
     <ReportPreviewConsole
@@ -383,13 +304,10 @@ export function LettersConsole({
       loading={loading}
       onRefresh={() => applyMatricAndLoad()}
       hasData={letters.length > 0}
-      getPrintHtml={() => buildPrintHtml(letters)}
+      printHtml={printHtml}
       defaultPdfName={defaultPdfName}
       emptyMessage="No printable letters for the current filters."
-      preview={letters.map((letter) => (
-        <MemoPage key={letter.salaryReviewId} letter={letter} />
-      ))}
-      alerts={
+     /*  alerts={
         skipped.length > 0 ? (
           <Alert className="shrink-0">
             <AlertDescription>
@@ -405,7 +323,7 @@ export function LettersConsole({
             </AlertDescription>
           </Alert>
         ) : null
-      }
+      } */
       toolbar={
         <Card className="shrink-0 py-3">
           <CardContent className="flex flex-wrap items-end gap-3 px-3">

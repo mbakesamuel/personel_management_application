@@ -1,5 +1,5 @@
 appId: com.perfappraisal.app
-productName: Perf Appraisal
+productName: Personel Management App
 directories:
   buildResources: build
   output: release
@@ -8,9 +8,13 @@ files:
   - '!src/*'
   - '!electron.vite.config.*'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+electronVersion: 35.7.5
+electronDist: ../../node_modules/electron/dist
 win:
   target:
-    - nsis
+    - target: nsis
+      arch:
+        - x64
 mac:
   target:
     - dmg

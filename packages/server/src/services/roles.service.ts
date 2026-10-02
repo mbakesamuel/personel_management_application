@@ -58,6 +58,7 @@ async function mapRoleRow(row: {
   can_allowance_allocations: boolean
   can_position_keywords: boolean
   can_allowance_matrix: boolean
+  can_communication_allowance: boolean
   can_validate: boolean
   can_demote_classification: boolean
   can_edit_validated: boolean
@@ -66,6 +67,7 @@ async function mapRoleRow(row: {
   can_through_officers: boolean
   can_import_history: boolean
   can_export_history: boolean
+  can_import_fleet: boolean
   can_users: boolean
   can_roles: boolean
 }): Promise<RoleDefinition> {
@@ -86,6 +88,7 @@ async function mapRoleRow(row: {
     canAllowanceAllocations: row.can_allowance_allocations,
     canPositionKeywords: row.can_position_keywords,
     canAllowanceMatrix: row.can_allowance_matrix,
+    canCommunicationAllowance: row.can_communication_allowance,
     canValidate: row.can_validate,
     canDemoteClassification: row.can_demote_classification,
     canEditValidated: row.can_edit_validated,
@@ -94,6 +97,7 @@ async function mapRoleRow(row: {
     canThroughOfficers: row.can_through_officers,
     canImportHistory: row.can_import_history,
     canExportHistory: row.can_export_history,
+    canImportFleet: row.can_import_fleet,
     canUsers: row.can_users,
     canRoles: row.can_roles,
   }
@@ -133,6 +137,7 @@ export async function getPermissionsForRole(
     canAllowanceAllocations: def.canAllowanceAllocations,
     canPositionKeywords: def.canPositionKeywords,
     canAllowanceMatrix: def.canAllowanceMatrix,
+    canCommunicationAllowance: def.canCommunicationAllowance,
     canValidate: def.canValidate,
     canDemoteClassification: def.canDemoteClassification,
     canEditValidated: def.canEditValidated,
@@ -141,6 +146,7 @@ export async function getPermissionsForRole(
     canThroughOfficers: def.canThroughOfficers,
     canImportHistory: def.canImportHistory,
     canExportHistory: def.canExportHistory,
+    canImportFleet: def.canImportFleet,
     canUsers: def.canUsers,
     canRoles: def.canRoles,
   }
@@ -231,6 +237,7 @@ export async function createRole(
         can_allowance_allocations: input.canAllowanceAllocations,
         can_position_keywords: input.canPositionKeywords,
         can_allowance_matrix: input.canAllowanceMatrix,
+        can_communication_allowance: input.canCommunicationAllowance,
         can_validate: input.canValidate,
         can_demote_classification: input.canDemoteClassification,
         can_edit_validated: input.canEditValidated,
@@ -239,6 +246,7 @@ export async function createRole(
         can_through_officers: input.canThroughOfficers,
         can_import_history: input.canImportHistory,
         can_export_history: input.canExportHistory,
+        can_import_fleet: input.canImportFleet,
         can_users: input.canUsers,
         can_roles: input.canRoles,
       },
@@ -284,6 +292,7 @@ export async function updateRole(
       can_allowance_allocations: input.canAllowanceAllocations,
       can_position_keywords: input.canPositionKeywords,
       can_allowance_matrix: input.canAllowanceMatrix,
+      can_communication_allowance: input.canCommunicationAllowance,
       can_validate: input.canValidate,
       can_demote_classification: input.canDemoteClassification,
       can_edit_validated: input.canEditValidated,
@@ -292,6 +301,7 @@ export async function updateRole(
       can_through_officers: input.canThroughOfficers,
       can_import_history: input.canImportHistory,
       can_export_history: input.canExportHistory,
+      can_import_fleet: input.canImportFleet,
       can_users: input.canUsers,
       can_roles: input.canRoles,
     },
@@ -309,6 +319,7 @@ export async function updateRole(
       can_allowance_allocations: input.canAllowanceAllocations,
       can_position_keywords: input.canPositionKeywords,
       can_allowance_matrix: input.canAllowanceMatrix,
+      can_communication_allowance: input.canCommunicationAllowance,
       can_validate: input.canValidate,
       can_demote_classification: input.canDemoteClassification,
       can_edit_validated: input.canEditValidated,
@@ -317,6 +328,7 @@ export async function updateRole(
       can_through_officers: input.canThroughOfficers,
       can_import_history: input.canImportHistory,
       can_export_history: input.canExportHistory,
+      can_import_fleet: input.canImportFleet,
       can_users: input.canUsers,
       can_roles: input.canRoles,
     },

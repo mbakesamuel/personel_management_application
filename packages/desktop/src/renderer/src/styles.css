@@ -148,3 +148,29 @@
     overflow: hidden;
   }
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .allowance-batch-report,
+  .allowance-batch-report *,
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible;
+  }
+  .allowance-batch-report,
+  .print-sheet {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: white;
+    color: black;
+  }
+  .operator-memo + .operator-memo {
+    break-before: page;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

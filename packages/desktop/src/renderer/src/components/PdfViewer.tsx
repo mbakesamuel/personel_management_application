@@ -1,12 +1,14 @@
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { Document, Page, pdfjs } from 'react-pdf'
-import 'react-pdf/dist/Page/AnnotationLayer.css'
-import 'react-pdf/dist/Page/TextLayer.css'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import { Button } from '@/components/ui/button'
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
+// The current pdf.js build calls Map/Uint8Array methods that Electron 35 does
+// not have. The legacy build includes those methods and must be paired with
+// the legacy worker.
+GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
   import.meta.url,
 ).toString()
 
@@ -21,22 +23,33 @@ type PdfViewerProps = {
   className?: string
 }
 
+function isCancelledRender(err: unknown): boolean {
+  return err instanceof Error && err.name === 'RenderingCancelledException'
+}
+
 export function PdfViewer({
   data,
   loading = false,
   error = null,
   className,
 }: PdfViewerProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const pdfRef = useRef<PDFDocumentProxy | null>(null)
   const [numPages, setNumPages] = useState(0)
   const [pageNumber, setPageNumber] = useState(1)
   const [scale, setScale] = useState(1)
   const [docError, setDocError] = useState<string | null>(null)
 
-  // Blob + copy avoids pdf.js detaching the ArrayBuffer held in React state,
-  // and survives IPC TypedArray edge cases better than { data: Uint8Array }.
+  // Copy into a Blob so pdf.js cannot detach the ArrayBuffer held in state.
   const file = useMemo(() => {
     if (!data || data.byteLength === 0) return null
-    return new Blob([data.slice()], { type: 'application/pdf' })
+    try {
+      const copy = new Uint8Array(data.byteLength)
+      copy.set(data)
+      return new Blob([copy], { type: 'application/pdf' })
+    } catch {
+      return null
+    }
   }, [data])
 
   useEffect(() => {
@@ -45,7 +58,66 @@ export function PdfViewer({
     setDocError(null)
   }, [file])
 
+  useEffect(() => {
+    if (!file || loading || error) return
+    let cancelled = false
+    let task: PDFDocumentLoadingTask | null = null
+    void (async () => {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        if (cancelled) return
+        task = getDocument({
+          data: bytes,
+          isOffscreenCanvasSupported: false,
+        })
+        const pdf = await task.promise
+        if (cancelled) return
+        pdfRef.current = pdf
+        setNumPages(pdf.numPages)
+      } catch (err) {
+        if (cancelled || isCancelledRender(err)) return
+        setDocError(err instanceof Error ? err.message : 'Failed to load PDF')
+      }
+    })()
+    return () => {
+      cancelled = true
+      pdfRef.current = null
+      void task?.destroy()
+    }
+  }, [file, loading, error])
+
+  useEffect(() => {
+    const pdf = pdfRef.current
+    const canvas = canvasRef.current
+    if (!pdf || !canvas || numPages === 0) return
+    let cancelled = false
+    let renderTask: RenderTask | null = null
+    const safePage = Math.min(Math.max(pageNumber, 1), numPages)
+    void (async () => {
+      try {
+        const page = await pdf.getPage(safePage)
+        if (cancelled) return
+        const pixelRatio = window.devicePixelRatio || 1
+        const viewport = page.getViewport({ scale: scale * pixelRatio })
+        canvas.width = Math.floor(viewport.width)
+        canvas.height = Math.floor(viewport.height)
+        canvas.style.width = `${Math.floor(viewport.width / pixelRatio)}px`
+        canvas.style.height = `${Math.floor(viewport.height / pixelRatio)}px`
+        renderTask = page.render({ canvas, viewport })
+        await renderTask.promise
+      } catch (err) {
+        if (cancelled || isCancelledRender(err)) return
+        setDocError(err instanceof Error ? err.message : 'Failed to draw the PDF page')
+      }
+    })()
+    return () => {
+      cancelled = true
+      renderTask?.cancel()
+    }
+  }, [numPages, pageNumber, scale])
+
   const displayError = error ?? docError
+  const showCanvas = Boolean(file) && !loading && !displayError && numPages > 0
 
   return (
     <div
@@ -126,27 +198,13 @@ export function PdfViewer({
           </p>
         ) : (
           <div className="flex justify-center">
-            <Document
-              file={file}
-              loading={
-                <p className="text-sm text-muted-foreground">Loading PDF…</p>
-              }
-              onLoadSuccess={({ numPages: pages }) => {
-                setNumPages(pages)
-                setPageNumber(1)
-                setDocError(null)
-              }}
-              onLoadError={(err) => {
-                setDocError(err.message || 'Failed to load PDF')
-              }}
-            >
-              <Page
-                pageNumber={pageNumber}
-                scale={scale}
-                renderTextLayer
-                renderAnnotationLayer
-              />
-            </Document>
+            {!showCanvas ? (
+              <p className="text-sm text-muted-foreground">Loading PDF…</p>
+            ) : null}
+            <canvas
+              ref={canvasRef}
+              className={showCanvas ? 'block bg-white shadow-sm' : 'hidden'}
+            />
           </div>
         )}
       </div>

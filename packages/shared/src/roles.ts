@@ -74,6 +74,7 @@ export type RolePermissions = {
   canAllowanceAllocations: boolean
   canPositionKeywords: boolean
   canAllowanceMatrix: boolean
+  canCommunicationAllowance: boolean
   canValidate: boolean
   canDemoteClassification: boolean
   canEditValidated: boolean
@@ -82,6 +83,7 @@ export type RolePermissions = {
   canThroughOfficers: boolean
   canImportHistory: boolean
   canExportHistory: boolean
+  canImportFleet: boolean
   canUsers: boolean
   canRoles: boolean
 }
@@ -161,6 +163,7 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
       canAllowanceAllocations: true,
       canPositionKeywords: true,
       canAllowanceMatrix: true,
+      canCommunicationAllowance: true,
       canValidate: true,
       canDemoteClassification: true,
       canEditValidated: true,
@@ -169,6 +172,7 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
       canThroughOfficers: true,
       canImportHistory: true,
       canExportHistory: true,
+      canImportFleet: true,
       canUsers: true,
       canRoles: true,
     }
@@ -185,6 +189,7 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
     canAllowanceAllocations: false,
     canPositionKeywords: false,
     canAllowanceMatrix: false,
+    canCommunicationAllowance: false,
     canValidate: false,
     canDemoteClassification: false,
     canEditValidated: false,
@@ -193,6 +198,7 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
     canThroughOfficers: false,
     canImportHistory: false,
     canExportHistory: false,
+    canImportFleet: false,
     canUsers: false,
     canRoles: false,
   }

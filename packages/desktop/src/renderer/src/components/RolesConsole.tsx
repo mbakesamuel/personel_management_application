@@ -55,6 +55,7 @@ type FormState = {
   canAllowanceAllocations: boolean
   canPositionKeywords: boolean
   canAllowanceMatrix: boolean
+  canCommunicationAllowance: boolean
   canValidate: boolean
   canDemoteClassification: boolean
   canEditValidated: boolean
@@ -63,6 +64,7 @@ type FormState = {
   canThroughOfficers: boolean
   canImportHistory: boolean
   canExportHistory: boolean
+  canImportFleet: boolean
   canUsers: boolean
   canRoles: boolean
 }
@@ -81,6 +83,7 @@ const PERMISSION_FIELDS = [
   ['canAllowanceAllocations', 'Allowance allocations'],
   ['canPositionKeywords', 'Position keywords'],
   ['canAllowanceMatrix', 'Allowance matrix'],
+  ['canCommunicationAllowance', 'Communication allowance'],
   ['canValidate', 'Validate workflow'],
   ['canDemoteClassification', 'Demote classification'],
   ['canEditValidated', 'Edit validated records'],
@@ -89,6 +92,7 @@ const PERMISSION_FIELDS = [
   ['canThroughOfficers', 'Through Officers'],
   ['canImportHistory', 'Import historic appraisals'],
   ['canExportHistory', 'Export historic appraisals'],
+  ['canImportFleet', 'Import fleet'],
   ['canUsers', 'Users'],
   ['canRoles', 'Roles'],
 ] as const
@@ -109,6 +113,7 @@ function emptyForm(defaultJurisdiction = 'section'): FormState {
     canAllowanceAllocations: false,
     canPositionKeywords: false,
     canAllowanceMatrix: false,
+    canCommunicationAllowance: false,
     canValidate: false,
     canDemoteClassification: false,
     canEditValidated: false,
@@ -117,6 +122,7 @@ function emptyForm(defaultJurisdiction = 'section'): FormState {
     canThroughOfficers: false,
     canImportHistory: false,
     canExportHistory: false,
+    canImportFleet: false,
     canUsers: false,
     canRoles: false,
   }
@@ -135,6 +141,7 @@ function permissionsSummary(role: RoleDefinition): string {
   if (role.canAllowanceAllocations) flags.push('Allocations')
   if (role.canPositionKeywords) flags.push('Keywords')
   if (role.canAllowanceMatrix) flags.push('Allow. matrix')
+  if (role.canCommunicationAllowance) flags.push('Comm. allowance')
   if (role.canValidate) flags.push('Validate workflow')
   if (role.canDemoteClassification) flags.push('Demote class.')
   if (role.canEditValidated) flags.push('Edit validated')
@@ -143,6 +150,7 @@ function permissionsSummary(role: RoleDefinition): string {
   if (role.canThroughOfficers) flags.push('Thro')
   if (role.canImportHistory) flags.push('Import')
   if (role.canExportHistory) flags.push('Export')
+  if (role.canImportFleet) flags.push('Fleet import')
   if (role.canUsers) flags.push('Users')
   if (role.canRoles) flags.push('Roles')
   return flags.length > 0 ? flags.join(', ') : 'None'
@@ -293,6 +301,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
       canAllowanceAllocations: row.canAllowanceAllocations,
       canPositionKeywords: row.canPositionKeywords,
       canAllowanceMatrix: row.canAllowanceMatrix,
+      canCommunicationAllowance: row.canCommunicationAllowance,
       canValidate: row.canValidate,
       canDemoteClassification: row.canDemoteClassification,
       canEditValidated: row.canEditValidated,
@@ -301,6 +310,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
       canThroughOfficers: row.canThroughOfficers,
       canImportHistory: row.canImportHistory,
       canExportHistory: row.canExportHistory,
+      canImportFleet: row.canImportFleet,
       canUsers: row.canUsers,
       canRoles: row.canRoles,
     })
@@ -328,6 +338,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
         canAllowanceAllocations: form.canAllowanceAllocations,
         canPositionKeywords: form.canPositionKeywords,
         canAllowanceMatrix: form.canAllowanceMatrix,
+        canCommunicationAllowance: form.canCommunicationAllowance,
         canValidate: form.canValidate,
         canDemoteClassification: form.canDemoteClassification,
         canEditValidated: form.canEditValidated,
@@ -336,6 +347,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
         canThroughOfficers: form.canThroughOfficers,
         canImportHistory: form.canImportHistory,
         canExportHistory: form.canExportHistory,
+        canImportFleet: form.canImportFleet,
         canUsers: form.canUsers,
         canRoles: form.canRoles,
       }

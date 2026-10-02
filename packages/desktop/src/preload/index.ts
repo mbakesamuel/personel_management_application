@@ -2,8 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { ServerConfig } from '@personel-management-app/shared'
 
 function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = Buffer.from(base64, 'base64')
-  return new Uint8Array(binary.buffer, binary.byteOffset, binary.byteLength)
+  // Copy into a new ArrayBuffer. A view into Node's pooled Buffer is detached
+  // or truncated on the context bridge, which makes the PDF viewer go blank.
+  return new Uint8Array(Buffer.from(base64, 'base64'))
 }
 
 const api = {
@@ -14,6 +15,10 @@ const api = {
     options?: { landscape?: boolean },
   ): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('report:print-html', html, options),
+  openReportHtml: (html: string, title: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('report:open-html', html, title),
+  printReportWindow: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('report-window:print'),
   htmlToPdf: async (
     html: string,
     options?: { landscape?: boolean },

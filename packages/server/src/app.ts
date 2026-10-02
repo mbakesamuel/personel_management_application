@@ -7,6 +7,7 @@ import {
 } from './middleware/current-user.js'
 import { appraisals } from './routes/appraisals.js'
 import { dashboard } from './routes/dashboard.js'
+import { dashboardGroups } from './routes/dashboard-groups.js'
 import { auth } from './routes/auth.js'
 import { decisionLevels } from './routes/decision-levels.js'
 import { financialYears } from './routes/financial-years.js'
@@ -14,6 +15,7 @@ import { health } from './routes/health.js'
 import { letterCc } from './routes/letter-cc.js'
 import { organization } from './routes/organization.js'
 import { allowances } from './routes/allowances.js'
+import { communication } from './routes/communication.js'
 import { positionKeywords } from './routes/position-keywords.js'
 import { allowanceMatrix } from './routes/allowance-matrix.js'
 import { reports } from './routes/reports.js'
@@ -35,6 +37,7 @@ const app = new Hono<{ Variables: AppVariables }>()
   .route('/financial-years', financialYears)
   .route('/organization', organization)
   .route('/allowances', allowances)
+  .route('/communication', communication)
   .route('/position-keywords', positionKeywords)
   .route('/allowance-matrix', allowanceMatrix)
   .route('/letter-cc', letterCc)
@@ -43,6 +46,7 @@ const app = new Hono<{ Variables: AppVariables }>()
   .route('/appraisals', appraisals)
   .route('/reports', reports)
   .route('/dashboard', dashboard)
+  .route('/dashboard-groups', dashboardGroups)
   .route('/personnel', personnel)
 
 export type AppType = typeof app

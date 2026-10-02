@@ -146,7 +146,7 @@ export const REPORT_HEADER_PRINT_CSS = `
 .rh-company-name { font-size: 12pt; }
 .rh-line { font-size: 11pt; margin-top: 2px; }
 .rh-title {
-  margin: 4px 0 0; font-size: 13pt; font-weight: 700;
+  margin: 4px 0 0; font-size: 14pt; font-weight: 700;
   text-transform: uppercase; text-decoration: underline;
 }
 `

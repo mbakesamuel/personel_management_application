@@ -4,7 +4,7 @@ import type {
   DashboardSlice,
   User,
 } from '@personel-management-app/shared'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import {
   Bar,
   BarChart,
@@ -18,14 +18,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { createApiClient } from '../api/client'
 import type { AppView } from './AppSidebar'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 type DashboardHomeProps = {
   user: User
+  data: DashboardResponse
   onNavigate: (view: AppView) => void
 }
 
@@ -164,38 +163,9 @@ function MovementChart({
   )
 }
 
-export function DashboardHome({ user, onNavigate }: DashboardHomeProps) {
-  const [data, setData] = useState<DashboardResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const client = await createApiClient()
-      const res = await client.dashboard.$get()
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          error?: string
-        } | null
-        throw new Error(body?.error ?? `Failed to load dashboard (${res.status})`)
-      }
-      setData((await res.json()) as DashboardResponse)
-    } catch (err) {
-      setData(null)
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
+export function DashboardHome({ user, data, onNavigate }: DashboardHomeProps) {
   const name = user.username?.trim() || 'there'
-  const workforce = data?.workforce
+  const workforce = data.workforce
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 md:p-4">
@@ -205,8 +175,8 @@ export function DashboardHome({ user, onNavigate }: DashboardHomeProps) {
             Hello, {name}
           </h1>
           <p className="mt-0.5 truncate text-sm text-muted-foreground">
-            {data?.scopeLabel ?? 'Your jurisdiction'}
-            {data?.appyear != null ? ` · Financial year ${data.appyear}` : ''}
+            Human-Resource · {data.scopeLabel}
+            {data.appyear != null ? ` · Financial year ${data.appyear}` : ''}
           </p>
         </div>
         {user.permissions.canPersonnel ? (
@@ -215,16 +185,6 @@ export function DashboardHome({ user, onNavigate }: DashboardHomeProps) {
           </Button>
         ) : null}
       </div>
-
-      {error ? (
-        <Alert className="shrink-0">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {loading ? (
-        <p className="shrink-0 text-sm text-muted-foreground">Loading status…</p>
-      ) : null}
 
       {workforce ? (
         <section className="grid min-h-0 flex-1 grid-cols-1 grid-rows-6 gap-2 overflow-hidden md:grid-cols-2 md:grid-rows-3 xl:grid-cols-3 xl:grid-rows-2">

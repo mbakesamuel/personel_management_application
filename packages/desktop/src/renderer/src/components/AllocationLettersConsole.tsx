@@ -5,7 +5,7 @@ import type {
   UnitOption,
   User,
 } from "@personel-management-app/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createApiClient } from "../api/client";
 import { ReportPreviewConsole } from "./ReportPreviewConsole";
 import { Button } from "@/components/ui/button";
@@ -41,127 +41,6 @@ function renderMemoDate(value: string): string {
 
 function formatAmount(value: number): string {
   return value.toLocaleString("en-US");
-}
-
-function AllocationMemoPage({ letter }: { letter: AllocationLetter }) {
-  return (
-    <article className="memo-page mx-auto mb-8 max-w-[210mm] bg-white p-8 font-serif text-[14px] leading-normal text-black shadow-sm">
-      <header className="text-center">
-        <h1 className="m-0 text-[14px] font-bold uppercase tracking-wide">
-          Cameroon Development Corporation
-        </h1>
-        <p className="m-0 mt-1 text-[14px] font-semibold uppercase underline">
-          Inter-Departmental Memo
-        </p>
-      </header>
-
-      <div className="mt-4 grid grid-cols-2 border-y-2 border-black text-[14px]">
-        <div className="border-r border-black">
-          <div className="border-b border-black px-2 py-1 font-semibold uppercase">
-            From:
-          </div>
-          <div className="border-b border-black px-2 py-1 pl-16 font-semibold uppercase">
-            {letter.fromTitle}
-          </div>
-          <div className="px-2 py-1">&nbsp;</div>
-        </div>
-        <div>
-          <div className="border-b border-black px-2 py-1 font-semibold uppercase">
-            To:
-          </div>
-          <div className="border-b border-black px-2 py-1 pl-16 font-bold uppercase">
-            {letter.names ?? letter.matricule}
-          </div>
-          <div className="px-2 py-1 pl-16 uppercase">
-            {letter.designationLine}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-1 grid grid-cols-2 text-[14px] uppercase">
-        <div />
-        <div className="px-2 py-1 pl-16">
-          Thro&apos;: {letter.throTitle}
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-start justify-between gap-4 text-[14px]">
-        <div className="uppercase">
-          {letter.refs.map((ref) => (
-            <div key={ref}>{ref}</div>
-          ))}
-          <div className="mt-1 font-bold underline">
-            Mat. No. {letter.matricule}
-          </div>
-        </div>
-        <div
-          className="shrink-0 [&_sup]:text-[0.7em]"
-          dangerouslySetInnerHTML={{
-            __html: renderMemoDate(letter.memoDate),
-          }}
-        />
-      </div>
-
-      <h2 className="mt-6 text-center text-[14px] font-bold uppercase underline">
-        {letter.subject}
-      </h2>
-
-      <p className="mt-4 text-justify text-[14px]">{letter.openingParagraph}</p>
-
-      <table className="mt-4 w-full border-collapse text-[13px]">
-        <thead>
-          <tr>
-            <th className="border border-black px-2 py-1 text-left uppercase">
-              Allowance
-            </th>
-            <th className="border border-black px-2 py-1 text-right uppercase">
-              Monthly Amount(FCFA)
-            </th>
-            <th className="border border-black px-2 py-1 text-left uppercase">
-              Area to Cover
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {letter.rows.map((row) => (
-            <tr key={row.allowanceId}>
-              <td className="border border-black px-2 py-1 uppercase">
-                {row.allowanceName}
-              </td>
-              <td className="border border-black px-2 py-1 text-right">
-                {formatAmount(row.monthlyAmount)}
-              </td>
-              <td className="border border-black px-2 py-1">
-                {row.areaToCover}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <p className="mt-4 text-[14px]">The following conditions shall apply;</p>
-      <ol className="mt-2 list-decimal space-y-2 pl-6 text-justify text-[14px]">
-        {letter.conditions.map((condition) => (
-          <li key={condition}>{condition}</li>
-        ))}
-      </ol>
-
-      <p className="mt-4 text-[14px]">{letter.closingLine}</p>
-
-      <div className="mt-10 text-right text-[14px]">
-        {letter.signatoryName ? (
-          <div className="font-bold uppercase">{letter.signatoryName}</div>
-        ) : null}
-        <div className="font-bold uppercase">
-          {letter.signatoryTitle ?? letter.fromTitle}
-        </div>
-      </div>
-
-      <p className="mt-10 text-[14px]">
-        Cc: {letter.cc.length > 0 ? letter.cc.join(", ") : "—"}
-      </p>
-    </article>
-  );
 }
 
 function buildPrintHtml(letters: AllocationLetter[]): string {
@@ -407,6 +286,11 @@ export function AllocationLettersConsole({
     void loadLetters();
   }, [loadLetters]);
 
+  const printHtml = useMemo(
+    () => (letters.length > 0 ? buildPrintHtml(letters) : ""),
+    [letters],
+  );
+
   return (
     <ReportPreviewConsole
       title="Allowance Allocation Letters"
@@ -415,12 +299,9 @@ export function AllocationLettersConsole({
       loading={loading}
       onRefresh={() => applyMatricAndLoad()}
       hasData={letters.length > 0}
-      getPrintHtml={() => buildPrintHtml(letters)}
+      printHtml={printHtml}
       defaultPdfName="allowance-allocation-letters.pdf"
       emptyMessage="No allocation letters for the current filters."
-      preview={letters.map((letter) => (
-        <AllocationMemoPage key={letter.matricule} letter={letter} />
-      ))}
       toolbar={
         <Card className="shrink-0 py-3">
           <CardContent className="flex flex-wrap items-end gap-3 px-3">

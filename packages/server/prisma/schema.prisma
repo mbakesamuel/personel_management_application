@@ -53,7 +53,7 @@ model tbl_employee {
   classifications  tbl_emp_class[]
   nationalities tbl_emp_nat_iden[]
   allowanceAllocation tbl_allowance_allocation[]
-  fleetRegistrations fleet_registration[]
+  fleetRegistrations fleetRegistration[]
 
   active         Boolean                       @default(true)
   currentUnitId  String?
@@ -669,6 +669,7 @@ model tbl_roles {
   can_allowance_allocations Boolean @default(false)
   can_position_keywords    Boolean @default(false)
   can_allowance_matrix     Boolean @default(false)
+  can_communication_allowance Boolean @default(false)
   can_validate             Boolean @default(false)
   can_demote_classification Boolean @default(false)
   can_edit_validated   Boolean @default(false)
@@ -677,6 +678,7 @@ model tbl_roles {
   can_through_officers Boolean @default(false)
   can_import_history   Boolean @default(false)
   can_export_history   Boolean @default(false)
+  can_import_fleet     Boolean @default(false)
   can_users            Boolean @default(false)
   can_roles            Boolean @default(false)
 }
@@ -775,6 +777,7 @@ model tbl_allowance {
   allowanceRate tbl_allowance_rate[]
   allowanceAllocation tbl_allowance_allocation[]
   allowanceKeywords tbl_allowance_keyword[]
+  fleetRegistrations fleetRegistration[]
 
   workflowStatus tbl_personnel_workflow_status @default(PENDING)
   createdAt      DateTime                      @default(now())
@@ -902,17 +905,18 @@ model tbl_allowance_keyword {
 model tbl_operator {
   id            Int       @id @default(autoincrement())
   name          String
-  email         String
-  phone         String
-  address       String
-  country       String
+  email         String?
+  phone         String?
+  address       String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
   isActive      Boolean   @default(true)
+  usesAccounts  Boolean   @default(true)
  
   numberPrefixes number_prefix[]
-  fleetRegistrations fleet_registration[]
+  fleetRegistrations fleetRegistration[]
+  communicationBatches CommunicationBatch[]
   @@index([isActive])
   @@index([email])
   @@index([phone])
@@ -921,7 +925,8 @@ model tbl_operator {
 
 model number_prefix {
   id            Int       @id @default(autoincrement())
-  prefix        String
+  rangeStart    String
+  rangeEnd      String
   operator_id   Int
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -931,48 +936,138 @@ model number_prefix {
   operator tbl_operator @relation(fields: [operator_id], references: [id])
 
   @@index([isActive])
-  @@index([prefix])
+  @@index([rangeStart])
   @@index([createdAt])
   @@index([updatedAt])
 
   }
 
-  model fleet_registration {
+  model fleetRegistration {
     id            Int       @id @default(autoincrement())
-    matricule             String
-    operator_id           Int
-    amount                Float
-    effective_date        DateTime
-    end_date              DateTime
+    matricule     String
+    operator_id   Int
+    allowanceId   String
+    accountNo     String?
+    phoneNumber   String
+    effectiveDate DateTime  @map("effective_date")
+    endDate       DateTime? @map("end_date")
+    replacedById  Int?      @unique
     isActive      Boolean   @default(true)
-    
-    operator tbl_operator @relation(fields: [operator_id], references: [id])   
-    employee              tbl_employee @relation(fields: [matricule], references: [matricule])
-    
-    createdAt     DateTime  @default(now())
-    updatedAt     DateTime  @updatedAt
-  
+    includedInBatch Boolean @default(false) @map("included_in_batch")
+
+    operator        tbl_operator       @relation(fields: [operator_id], references: [id])
+    employee        tbl_employee       @relation(fields: [matricule], references: [matricule])
+    allowance       tbl_allowance      @relation(fields: [allowanceId], references: [id])
+    replacedBy      fleetRegistration? @relation("FleetTransfer", fields: [replacedById], references: [id], onDelete: SetNull)
+    replaces        fleetRegistration? @relation("FleetTransfer")
+    fleetRegDetails fleetRegDetails[]
+    communicationBatchLines CommunicationBatchLine[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
 
     @@index([isActive])
     @@index([matricule])
+    @@index([allowanceId])
     @@index([createdAt])
     @@index([updatedAt])
+    @@map("fleet_registration")
   }
 
-//this could be used to store monthly generated allowance payments.
- model fleet_payment {
-  id            Int       @id @default(autoincrement())
-  matricule             String
-  operator_id           Int
-  amount                Float
-  effective_date        DateTime
-  end_date              DateTime
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  model fleetRegDetails {
+    id                  Int      @id @default(autoincrement())
+    fleetRegistrationId Int
+    serviceId           Int
+    amount              Float
+    effectiveDate       DateTime @map("effective_date")
 
-  @@index([isActive])
-  @@index([matricule])
+    fleetRegistration fleetRegistration @relation(fields: [fleetRegistrationId], references: [id])
+    service           Service           @relation(fields: [serviceId], references: [id])
+
+    @@index([fleetRegistrationId])
+    @@index([serviceId])
+    @@index([fleetRegistrationId, serviceId, effectiveDate])
+    @@map("fleet_reg_details")
+  }
+
+  model Service {
+    id        Int      @id @default(autoincrement())
+    name      String
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    serviceAllocations fleetRegDetails[]
+    communicationBatchAmounts CommunicationBatchAmount[]
+
+    @@index([name])
+    @@index([createdAt])
+    @@index([updatedAt])
+    @@map("service")
+  }
+
+model CommunicationBatch {
+  id            Int      @id @default(autoincrement())
+  operatorId    Int
+  effectiveDate DateTime @map("effective_date")
+  endDate       DateTime @map("end_date")
+  createdById   Int
+  createdAt     DateTime @default(now())
+
+  operator tbl_operator            @relation(fields: [operatorId], references: [id])
+  lines    CommunicationBatchLine[]
+
+  @@index([operatorId])
   @@index([createdAt])
-  @@index([updatedAt])
- }
+  @@map("communication_batch")
+}
+
+model CommunicationBatchLine {
+  id                  Int    @id @default(autoincrement())
+  batchId             Int
+  fleetRegistrationId Int
+  action              String @db.VarChar(20)
+
+  batch             CommunicationBatch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  fleetRegistration fleetRegistration         @relation(fields: [fleetRegistrationId], references: [id])
+  amounts           CommunicationBatchAmount[]
+
+  @@index([batchId])
+  @@index([fleetRegistrationId])
+  @@map("communication_batch_line")
+}
+
+model CommunicationBatchAmount {
+  id             Int    @id @default(autoincrement())
+  lineId         Int
+  serviceId      Int
+  previousAmount Float?
+  amount         Float
+
+  line    CommunicationBatchLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  service Service                @relation(fields: [serviceId], references: [id])
+
+  @@index([lineId])
+  @@index([serviceId])
+  @@map("communication_batch_amount")
+}
+
+model DashboardGroup {
+  code        String               @id @db.VarChar(40)
+  label       String               @db.VarChar(120)
+  kind        String               @db.VarChar(30)
+  system      Boolean              @default(false)
+  sortOrder   Int                  @map("sort_order")
+  assignments DashboardGroupRole[]
+
+  @@map("dashboard_group")
+}
+
+model DashboardGroupRole {
+  roleCode  String         @id @map("role_code") @db.VarChar(30)
+  groupCode String         @map("group_code") @db.VarChar(40)
+  group     DashboardGroup @relation(fields: [groupCode], references: [code], onDelete: Cascade)
+
+  @@index([groupCode])
+  @@map("dashboard_group_role")
+}
+

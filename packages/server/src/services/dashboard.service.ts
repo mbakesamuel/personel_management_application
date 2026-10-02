@@ -1,10 +1,13 @@
 import { Prisma } from '@prisma/client'
 import type {
+  AllowanceDashboard,
+  CommunicationDashboard,
   DashboardMonthBar,
   DashboardResponse,
   DashboardSexBar,
   DashboardSlice,
   DashboardWorkforce,
+  HomeDashboardResponse,
   User,
 } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
@@ -12,6 +15,7 @@ import {
   sectionIdsForUser,
   unitIdsForUser,
 } from './authz.service.js'
+import { resolveDashboardGroup } from './dashboard-groups.service.js'
 import {
   resolveLiveEmployees,
   unitCodesMatch,
@@ -92,6 +96,167 @@ export async function buildDashboard(user: User): Promise<DashboardResponse> {
   const workforce = await workforceCharts(appyear, unitIds)
 
   return { scopeLabel, appyear, appraisals, allowances, workforce }
+}
+
+function todayUtc(): Date {
+  const now = new Date()
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  )
+}
+
+async function buildCommunicationDashboard(): Promise<CommunicationDashboard> {
+  const today = todayUtc()
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+
+  const [openLines, closedLines, openRows, operators, details, batchesThisMonth] =
+    await Promise.all([
+      prisma.fleetRegistration.count({ where: { endDate: null } }),
+      prisma.fleetRegistration.count({ where: { endDate: { not: null } } }),
+      prisma.fleetRegistration.findMany({
+        where: { endDate: null },
+        select: { matricule: true, operator_id: true },
+      }),
+      prisma.tbl_operator.findMany({
+        where: { deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.fleetRegDetails.findMany({
+        where: {
+          effectiveDate: { lte: today },
+          fleetRegistration: { endDate: null },
+        },
+        select: {
+          id: true,
+          fleetRegistrationId: true,
+          serviceId: true,
+          amount: true,
+          service: { select: { name: true } },
+        },
+        orderBy: [{ effectiveDate: 'desc' }, { id: 'desc' }],
+      }),
+      prisma.communicationBatch.count({
+        where: { createdAt: { gte: monthStart, lt: monthEnd } },
+      }),
+    ])
+
+  const employees = new Set(openRows.map((row) => row.matricule))
+  const counts = new Map<number, number>()
+  for (const row of openRows) {
+    counts.set(row.operator_id, (counts.get(row.operator_id) ?? 0) + 1)
+  }
+
+  const best = new Map<string, { amount: number; name: string }>()
+  for (const row of details) {
+    const key = `${row.fleetRegistrationId}:${row.serviceId}`
+    if (best.has(key)) continue
+    best.set(key, { amount: row.amount, name: row.service.name })
+  }
+
+  let airtimeTotal = 0
+  let dataTotal = 0
+  for (const item of best.values()) {
+    const name = item.name.trim().toLowerCase()
+    if (name === 'airtime') airtimeTotal += item.amount
+    else if (name === 'data') dataTotal += item.amount
+  }
+
+  return {
+    openLines,
+    closedLines,
+    employeesOnOpenLines: employees.size,
+    operators: operators
+      .map((operator) => ({
+        name: operator.name,
+        openLines: counts.get(operator.id) ?? 0,
+      }))
+      .sort(
+        (left, right) =>
+          right.openLines - left.openLines ||
+          left.name.localeCompare(right.name),
+      ),
+    airtimeTotal,
+    dataTotal,
+    batchesThisMonth,
+  }
+}
+
+async function buildAllowanceDashboard(): Promise<AllowanceDashboard> {
+  const rows = await prisma.tbl_allowance_allocation.findMany({
+    where: { current: true },
+    select: {
+      matricule: true,
+      allowanceAmt: true,
+      workflowStatus: true,
+      allowance: { select: { allowanceName: true } },
+    },
+  })
+
+  const employees = new Set<string>()
+  const amounts = new Map<string, number>()
+  let pending = 0
+  let validated = 0
+  let rejected = 0
+  let totalAmount = 0
+
+  for (const row of rows) {
+    employees.add(row.matricule)
+    totalAmount += row.allowanceAmt
+    const name = row.allowance.allowanceName.trim() || 'Allowance'
+    amounts.set(name, (amounts.get(name) ?? 0) + row.allowanceAmt)
+    if (row.workflowStatus === 'PENDING') pending += 1
+    else if (row.workflowStatus === 'VALIDATED') validated += 1
+    else if (row.workflowStatus === 'REJECTED') rejected += 1
+  }
+
+  return {
+    currentAllocations: rows.length,
+    employeesAllocated: employees.size,
+    pending,
+    validated,
+    rejected,
+    totalAmount,
+    allowances: [...amounts.entries()]
+      .map(([name, amount]) => ({ name, amount }))
+      .sort(
+        (left, right) =>
+          right.amount - left.amount || left.name.localeCompare(right.name),
+      ),
+  }
+}
+
+export async function buildHomeDashboard(
+  user: User,
+): Promise<HomeDashboardResponse> {
+  const group = await resolveDashboardGroup(user.role)
+  if (group.kind === 'HR') {
+    return {
+      group,
+      hr: await buildDashboard(user),
+      communication: null,
+      allowance: null,
+    }
+  }
+  if (group.kind === 'COMMUNICATION') {
+    return {
+      group,
+      hr: null,
+      communication: await buildCommunicationDashboard(),
+      allowance: null,
+    }
+  }
+  if (group.kind === 'ALLOWANCE') {
+    return {
+      group,
+      hr: null,
+      communication: null,
+      allowance: await buildAllowanceDashboard(),
+    }
+  }
+  return { group, hr: null, communication: null, allowance: null }
 }
 
 async function appraisalCounts(

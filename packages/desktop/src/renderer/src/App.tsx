@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FinancialYear, User } from "@personel-management-app/shared";
 import { BarChart3, ClipboardList, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import {
   type SidebarItem,
 } from "./components/AppSidebar";
 import { DecisionMatricConsole } from "./components/DecisionMatricConsole";
-import { DashboardHome } from "./components/DashboardHome";
+import { DashboardGroupsConsole } from "./components/DashboardGroupsConsole";
+import { HomeDashboard } from "./components/HomeDashboard";
 import { FinancialYearsConsole } from "./components/FinancialYearsConsole";
 import { Footer } from "./components/Footer";
 import { LetterCopiesConsole } from "./components/LetterCopiesConsole";
@@ -22,6 +23,12 @@ import { Login } from "./components/Login";
 import { ChangePassword } from "./components/ChangePassword";
 import { OrganizationConsole } from "./components/OrganizationConsole";
 import { AllowancesConsole } from "./components/AllowancesConsole";
+import { OperatorsConsole } from "@/components/OperatorsConsole";
+import { RegistrationsConsole } from "@/components/RegistrationsConsole";
+import { AllowanceChangesConsole } from "@/components/AllowanceChangesConsole";
+import { AllowanceHistoryConsole } from "@/components/AllowanceHistoryConsole";
+import { AllowanceChangeLettersConsole } from "@/components/AllowanceChangeLettersConsole";
+import { CommunicationLinesConsole } from "@/components/CommunicationLinesConsole";
 import { PersonnelConsole } from "./components/PersonnelConsole";
 import { ViewErrorBoundary } from "./components/ViewErrorBoundary";
 import { PositionKeywordsConsole } from "./components/PositionKeywordsConsole";
@@ -30,6 +37,7 @@ import { RolesConsole } from "./components/RolesConsole";
 import { JurisdictionsConsole } from "./components/JurisdictionsConsole";
 import { SalaryReviewExportConsole } from "./components/SalaryReviewExportConsole";
 import { SalaryReviewImportConsole } from "./components/SalaryReviewImportConsole";
+import { FleetImportConsole } from "./components/FleetImportConsole";
 import { ThroOfficersConsole } from "./components/ThroOfficersConsole";
 import { TopNav } from "./components/TopNav";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -62,6 +70,24 @@ export default function App() {
   >("welcome");
   const [pendingUsername, setPendingUsername] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (
+      (view === "operators" ||
+        view === "registrations" ||
+        view === "allowance-changes" ||
+        view === "allowance-history" ||
+        view === "allowance-change-letters" ||
+        view === "communication-lines") &&
+      user &&
+      !user.permissions.canCommunicationAllowance
+    ) {
+      setView("home");
+    }
+    if (view === "dashboard-groups" && user && !user.permissions.canRoles) {
+      setView("home");
+    }
+  }, [view, user]);
+
   function applyFinancialYear(
     next: FinancialYear | null,
     nextUser?: User,
@@ -93,13 +119,21 @@ export default function App() {
     const processItems: SidebarItem[] = [
       {
         view: "financial-years" as const,
-        label: "Financial Years",
+        label: "Open/Close year",
       },
       ...(perms?.canImportHistory
         ? [
             {
               view: "import-salary-review" as const,
               label: "Import Appraisals (From Excel)",
+            },
+          ]
+        : []),
+      ...(perms?.canImportFleet
+        ? [
+            {
+              view: "import-fleet" as const,
+              label: "Import fleet (From Excel)",
             },
           ]
         : []),
@@ -119,35 +153,12 @@ export default function App() {
             },
           ]
         : []),
-      ...(perms?.canAllowances
+      ...(perms?.canCommunicationAllowance
         ? [
-            ...(perms.canAllowanceTypes ||
-            perms.canAllowanceCatalog ||
-            perms.canAllowanceRates ||
-            perms.canAllowanceAllocations
-              ? [
-                  {
-                    view: "allowances" as const,
-                    label: "Allowances",
-                  },
-                ]
-              : []),
-            ...(perms.canPositionKeywords
-              ? [
-                  {
-                    view: "position-keywords" as const,
-                    label: "Position keywords",
-                  },
-                ]
-              : []),
-            ...(perms.canAllowanceMatrix
-              ? [
-                  {
-                    view: "allowance-matrix" as const,
-                    label: "Allowance matrix",
-                  },
-                ]
-              : []),
+            {
+              view: "operators" as const,
+              label: "Operators",
+            },
           ]
         : []),
       ...(perms?.canLetterCc
@@ -189,6 +200,10 @@ export default function App() {
               label: "Roles & Permissions",
             },
             {
+              view: "dashboard-groups" as const,
+              label: "Dashboards",
+            },
+            {
               view: "jurisdictions" as const,
               label: "Jurisdictions",
             },
@@ -202,6 +217,53 @@ export default function App() {
             {
               view: "personnel" as const,
               label: "Personnel",
+            },
+          ]
+        : []),
+      ...(perms?.canAllowances
+        ? [
+            ...(perms.canAllowanceTypes ||
+            perms.canAllowanceCatalog ||
+            perms.canAllowanceRates ||
+            perms.canAllowanceAllocations
+              ? [
+                  {
+                    view: "allowances" as const,
+                    label: "Allowances",
+                  },
+                ]
+              : []),
+            ...(perms.canPositionKeywords
+              ? [
+                  {
+                    view: "position-keywords" as const,
+                    label: "Position keywords",
+                  },
+                ]
+              : []),
+            ...(perms.canAllowanceMatrix
+              ? [
+                  {
+                    view: "allowance-matrix" as const,
+                    label: "Allowance matrix",
+                  },
+                ]
+              : []),
+          ]
+        : []),
+      ...(perms?.canCommunicationAllowance
+        ? [
+            {
+              view: "registrations" as const,
+              label: "Fleet Registration",
+            },
+            {
+              view: "allowance-changes" as const,
+              label: "Inclusion/Modification/Removal",
+            },
+            {
+              view: "allowance-history" as const,
+              label: "Allowance history",
             },
           ]
         : []),
@@ -233,6 +295,18 @@ export default function App() {
             {
               view: "allocation-letters" as const,
               label: "Allowance Allocation Letters",
+            },
+          ]
+        : []),
+      ...(perms?.canCommunicationAllowance
+        ? [
+            {
+              view: "allowance-change-letters" as const,
+              label: "Allowance Change Letters",
+            },
+            {
+              view: "communication-lines" as const,
+              label: "Communication lines",
             },
           ]
         : []),
@@ -411,6 +485,8 @@ export default function App() {
             />
           ) : view === "import-salary-review" ? (
             <SalaryReviewImportConsole onClose={() => setView("home")} />
+          ) : view === "import-fleet" ? (
+            <FleetImportConsole onClose={() => setView("home")} />
           ) : view === "export-salary-review" ? (
             <SalaryReviewExportConsole
               user={user}
@@ -433,6 +509,24 @@ export default function App() {
               currentUser={user}
               onClose={() => setView("home")}
             />
+          ) : view === "operators" &&
+            user.permissions.canCommunicationAllowance ? (
+            <OperatorsConsole onClose={() => setView("home")} />
+          ) : view === "registrations" &&
+            user.permissions.canCommunicationAllowance ? (
+            <RegistrationsConsole onClose={() => setView("home")} />
+          ) : view === "allowance-changes" &&
+            user.permissions.canCommunicationAllowance ? (
+            <AllowanceChangesConsole onClose={() => setView("home")} />
+          ) : view === "allowance-history" &&
+            user.permissions.canCommunicationAllowance ? (
+            <AllowanceHistoryConsole onClose={() => setView("home")} />
+          ) : view === "allowance-change-letters" &&
+            user.permissions.canCommunicationAllowance ? (
+            <AllowanceChangeLettersConsole onClose={() => setView("home")} />
+          ) : view === "communication-lines" &&
+            user.permissions.canCommunicationAllowance ? (
+            <CommunicationLinesConsole onClose={() => setView("home")} />
           ) : view === "position-keywords" ? (
             <PositionKeywordsConsole onClose={() => setView("home")} />
           ) : view === "allowance-matrix" ? (
@@ -447,6 +541,8 @@ export default function App() {
             <UsersConsole currentUser={user} onClose={() => setView("home")} />
           ) : view === "roles" ? (
             <RolesConsole onClose={() => setView("home")} />
+          ) : view === "dashboard-groups" && user.permissions.canRoles ? (
+            <DashboardGroupsConsole onClose={() => setView("home")} />
           ) : view === "jurisdictions" ? (
             <JurisdictionsConsole onClose={() => setView("home")} />
           ) : view === "letters" ? (
@@ -467,7 +563,7 @@ export default function App() {
               onClose={() => setView("home")}
             />
           ) : (
-            <DashboardHome user={user} onNavigate={setView} />
+            <HomeDashboard user={user} onNavigate={setView} />
           )}
         </main>
       </div>

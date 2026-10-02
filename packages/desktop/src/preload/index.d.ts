@@ -6,6 +6,8 @@ export type DesktopApi = {
     html: string,
     options?: { landscape?: boolean },
   ) => Promise<{ ok: boolean }>
+  openReportHtml: (html: string, title: string) => Promise<{ ok: boolean }>
+  printReportWindow: () => Promise<{ ok: boolean }>
   htmlToPdf: (
     html: string,
     options?: { landscape?: boolean },

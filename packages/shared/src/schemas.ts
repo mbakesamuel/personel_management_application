@@ -63,6 +63,7 @@ export const RolePermissionsSchema = z.object({
   canAllowanceAllocations: z.boolean(),
   canPositionKeywords: z.boolean(),
   canAllowanceMatrix: z.boolean(),
+  canCommunicationAllowance: z.boolean(),
   canValidate: z.boolean(),
   canDemoteClassification: z.boolean(),
   canEditValidated: z.boolean(),
@@ -71,6 +72,7 @@ export const RolePermissionsSchema = z.object({
   canThroughOfficers: z.boolean(),
   canImportHistory: z.boolean(),
   canExportHistory: z.boolean(),
+  canImportFleet: z.boolean(),
   canUsers: z.boolean(),
   canRoles: z.boolean(),
 })
@@ -91,6 +93,7 @@ export const RoleDefinitionSchema = z.object({
   canAllowanceAllocations: z.boolean(),
   canPositionKeywords: z.boolean(),
   canAllowanceMatrix: z.boolean(),
+  canCommunicationAllowance: z.boolean(),
   canValidate: z.boolean(),
   canDemoteClassification: z.boolean(),
   canEditValidated: z.boolean(),
@@ -99,6 +102,7 @@ export const RoleDefinitionSchema = z.object({
   canThroughOfficers: z.boolean(),
   canImportHistory: z.boolean(),
   canExportHistory: z.boolean(),
+  canImportFleet: z.boolean(),
   canUsers: z.boolean(),
   canRoles: z.boolean(),
 })
@@ -117,6 +121,7 @@ export const RoleUpdateSchema = z.object({
   canAllowanceAllocations: z.boolean(),
   canPositionKeywords: z.boolean(),
   canAllowanceMatrix: z.boolean(),
+  canCommunicationAllowance: z.boolean(),
   canValidate: z.boolean(),
   canDemoteClassification: z.boolean(),
   canEditValidated: z.boolean(),
@@ -125,6 +130,7 @@ export const RoleUpdateSchema = z.object({
   canThroughOfficers: z.boolean(),
   canImportHistory: z.boolean(),
   canExportHistory: z.boolean(),
+  canImportFleet: z.boolean(),
   canUsers: z.boolean(),
   canRoles: z.boolean(),
 })
@@ -535,6 +541,183 @@ export const AllowanceKeywordBulkSchema = z.object({
   allowanceIds: z.array(z.string().trim().min(1).max(30)),
 })
 
+const DateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+
+export const FleetImportRegistrationSchema = z.object({
+  row: z.number().int().positive(),
+  id: z.number().int().positive(),
+  matricule: z.string().trim().min(1).max(191),
+  operatorId: z.number().int().positive(),
+  allowanceId: z.string().trim().min(1).max(191),
+  accountNo: z.string().trim().max(191).nullable().optional(),
+  phoneNumber: z.string().trim().min(1).max(191),
+  effectiveDate: DateOnlySchema,
+  endDate: DateOnlySchema.nullable().optional(),
+  replacedById: z.number().int().positive().nullable().optional(),
+  isActive: z.boolean().optional(),
+  includedInBatch: z.boolean().optional(),
+  createdAt: DateOnlySchema.nullable().optional(),
+  updatedAt: DateOnlySchema.nullable().optional(),
+})
+
+export const FleetImportDetailSchema = z.object({
+  row: z.number().int().positive(),
+  id: z.number().int().positive().nullable().optional(),
+  fleetRegistrationId: z.number().int().positive(),
+  serviceId: z.number().int().positive(),
+  amount: z.number().finite().nonnegative(),
+  effectiveDate: DateOnlySchema,
+})
+
+export const FleetImportBatchSchema = z
+  .object({
+    registrations: z.array(FleetImportRegistrationSchema).max(5000),
+    details: z.array(FleetImportDetailSchema).max(20000),
+  })
+  .refine(
+    (value) => value.registrations.length + value.details.length > 0,
+    'Workbook has no rows to import',
+  )
+
+export const FleetImportResultSchema = z.object({
+  registrationsInserted: z.number().int(),
+  detailsInserted: z.number().int(),
+  skipped: z.number().int(),
+  errors: z.array(
+    z.object({
+      sheet: z.enum(['fleet_registration', 'fleet_reg_details']),
+      row: z.number().int(),
+      message: z.string(),
+    }),
+  ),
+})
+
+const PrefixRangeSchema = z
+  .object({
+    start: z.string().trim().regex(/^\d{2,6}$/, 'Use 2 to 6 digits'),
+    end: z.string().trim().regex(/^\d{2,6}$/, 'Use 2 to 6 digits'),
+  })
+  .superRefine((range, ctx) => {
+    if (range.start.length !== range.end.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Range start and end must be the same length',
+        path: ['end'],
+      })
+      return
+    }
+    if (range.start > range.end) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Range start must be less than or equal to the end',
+        path: ['end'],
+      })
+    }
+  })
+
+export const CommunicationOperatorUpsertSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    email: z.string().trim().max(120),
+    phone: z.string().trim().max(40),
+    address: z.string().trim().max(200),
+    isActive: z.boolean(),
+    usesAccounts: z.boolean(),
+    prefixes: z.array(PrefixRangeSchema).max(20),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.usesAccounts && value.prefixes.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'This operator does not use number prefixes',
+        path: ['prefixes'],
+      })
+    }
+  })
+
+export const CommunicationRegistrationCreateSchema = z.object({
+  matricule: z.string().trim().min(1).max(30),
+  operatorId: z.number().int().positive(),
+  allowanceId: z.string().trim().min(1).max(30),
+  accountNo: z.string().trim().max(40),
+  phoneNumber: z.string().trim().min(1).max(20),
+  effectiveDate: DateOnlySchema,
+})
+
+export const CommunicationRegistrationRemoveSchema = z.object({
+  endDate: DateOnlySchema,
+})
+
+export const CommunicationRegistrationTransferSchema = z.object({
+  operatorId: z.number().int().positive(),
+  accountNo: z.string().trim().max(40),
+  phoneNumber: z.string().trim().min(1).max(20),
+  effectiveDate: DateOnlySchema,
+})
+
+export const CommunicationAmountCreateSchema = z.object({
+  fleetRegistrationId: z.number().int().positive(),
+  serviceId: z.number().int().positive(),
+  amount: z.number().finite().nonnegative(),
+  effectiveDate: DateOnlySchema,
+})
+
+export const CommunicationBatchCreateSchema = z
+  .object({
+    operatorId: z.number().int().positive(),
+    effectiveDate: DateOnlySchema,
+    endDate: DateOnlySchema,
+    lines: z
+      .array(
+        z.object({
+          fleetRegistrationId: z.number().int().positive(),
+          action: z.enum(['MODIFICATION', 'REMOVAL', 'CREATION']),
+          amounts: z
+            .array(
+              z.object({
+                serviceId: z.number().int().positive(),
+                amount: z.number().finite().nonnegative(),
+              }),
+            )
+            .default([]),
+        }),
+      )
+      .min(1),
+  })
+  .superRefine((value, ctx) => {
+    const seen = new Set<number>()
+    value.lines.forEach((line, index) => {
+      if (seen.has(line.fleetRegistrationId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'A line can only be included once',
+          path: ['lines', index, 'fleetRegistrationId'],
+        })
+      }
+      seen.add(line.fleetRegistrationId)
+      if (line.action === 'MODIFICATION' && line.amounts.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Enter at least one amount',
+          path: ['lines', index, 'amounts'],
+        })
+      }
+      if (
+        (line.action === 'REMOVAL' || line.action === 'CREATION') &&
+        line.amounts.length > 0
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            line.action === 'REMOVAL'
+              ? 'A removal does not take amounts'
+              : 'An inclusion does not take amounts',
+          path: ['lines', index, 'amounts'],
+        })
+      }
+    })
+  })
+
 export const EmployeeListQuerySchema = z.object({
   workflowStatus: WorkflowStatusSchema.optional(),
   page: z.coerce.number().int().min(1).optional(),
@@ -662,6 +845,71 @@ export type AllowanceKeywordUpdateInput = z.infer<
 export type AllowanceKeywordBulkInput = z.infer<
   typeof AllowanceKeywordBulkSchema
 >
+export type CommunicationOperatorUpsertInput = z.infer<
+  typeof CommunicationOperatorUpsertSchema
+>
+export type CommunicationRegistrationCreateInput = z.infer<
+  typeof CommunicationRegistrationCreateSchema
+>
+export type CommunicationRegistrationRemoveInput = z.infer<
+  typeof CommunicationRegistrationRemoveSchema
+>
+export type CommunicationRegistrationTransferInput = z.infer<
+  typeof CommunicationRegistrationTransferSchema
+>
+export type CommunicationAmountCreateInput = z.infer<
+  typeof CommunicationAmountCreateSchema
+>
+export type CommunicationBatchCreateInput = z.infer<
+  typeof CommunicationBatchCreateSchema
+>
 export type EmployeeListQuery = z.infer<typeof EmployeeListQuerySchema>
 export type EmployeeCreateInput = z.infer<typeof EmployeeCreateSchema>
 export type EmployeeUpdateInput = z.infer<typeof EmployeeUpdateSchema>
+
+export const DashboardGroupKindSchema = z.enum([
+  'HR',
+  'WELCOME',
+  'COMMUNICATION',
+  'ALLOWANCE',
+])
+
+export const DashboardGroupCreateSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+})
+
+export const DashboardGroupAssignmentsSchema = z.object({
+  assignments: z
+    .array(
+      z.object({
+        roleCode: z.string().trim().min(1).max(30),
+        groupCode: z.string().trim().min(1).max(40),
+      }),
+    )
+    .superRefine((rows, ctx) => {
+      const seen = new Set<string>()
+      rows.forEach((row, index) => {
+        if (seen.has(row.roleCode)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Each role can belong to only one dashboard group',
+            path: [index, 'roleCode'],
+          })
+        }
+        seen.add(row.roleCode)
+      })
+    }),
+})
+
+export type DashboardGroupCreateInput = z.infer<
+  typeof DashboardGroupCreateSchema
+>
+export type DashboardGroupAssignmentsInput = z.infer<
+  typeof DashboardGroupAssignmentsSchema
+>
+export type FleetImportRegistration = z.infer<
+  typeof FleetImportRegistrationSchema
+>
+export type FleetImportDetail = z.infer<typeof FleetImportDetailSchema>
+export type FleetImportBatchInput = z.infer<typeof FleetImportBatchSchema>
+export type FleetImportResult = z.infer<typeof FleetImportResultSchema>

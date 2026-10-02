@@ -267,6 +267,56 @@ export type DashboardResponse = {
   workforce: DashboardWorkforce
 }
 
+export type DashboardGroupKind = 'HR' | 'WELCOME' | 'COMMUNICATION' | 'ALLOWANCE'
+
+export type DashboardGroupSummary = {
+  code: string
+  label: string
+  kind: DashboardGroupKind
+}
+
+export type DashboardGroupListItem = DashboardGroupSummary & {
+  system: boolean
+  roleCodes: string[]
+}
+
+export type CommunicationOperatorBar = {
+  name: string
+  openLines: number
+}
+
+export type CommunicationDashboard = {
+  openLines: number
+  closedLines: number
+  employeesOnOpenLines: number
+  operators: CommunicationOperatorBar[]
+  airtimeTotal: number
+  dataTotal: number
+  batchesThisMonth: number
+}
+
+export type AllowanceAmountBar = {
+  name: string
+  amount: number
+}
+
+export type AllowanceDashboard = {
+  currentAllocations: number
+  employeesAllocated: number
+  pending: number
+  validated: number
+  rejected: number
+  totalAmount: number
+  allowances: AllowanceAmountBar[]
+}
+
+export type HomeDashboardResponse = {
+  group: DashboardGroupSummary
+  hr: DashboardResponse | null
+  communication: CommunicationDashboard | null
+  allowance: AllowanceDashboard | null
+}
+
 export type AppraisalSummaryRow = {
   sn: number
   matric: string
@@ -428,6 +478,133 @@ export type AllowanceAllocationOption = {
   effectiveDate: string
   current: boolean
 } & AllowanceWorkflowFields
+
+export type CommunicationPrefixRange = {
+  start: string
+  end: string
+}
+
+export type CommunicationOperator = {
+  id: number
+  name: string
+  email: string | null
+  phone: string | null
+  address: string | null
+  isActive: boolean
+  usesAccounts: boolean
+  prefixes: CommunicationPrefixRange[]
+}
+
+export type CommunicationServiceOption = {
+  id: number
+  name: string
+}
+
+export type CommunicationAllowanceOption = {
+  id: string
+  allowanceName: string
+}
+
+export type CommunicationRegistration = {
+  id: number
+  matricule: string
+  employeeName: string
+  operatorId: number
+  operatorName: string
+  allowanceId: string
+  allowanceName: string
+  accountNo: string | null
+  phoneNumber: string
+  effectiveDate: string
+  endDate: string | null
+  isActive: boolean
+  replacedById: number | null
+  includedInBatch: boolean
+  createdAt: string
+}
+
+export type CommunicationLine = {
+  id: number
+  matricule: string
+  employeeName: string
+  position: string | null
+  phoneNumber: string
+  operatorId: number
+  operatorName: string
+  airtime: number
+  data: number
+  groupName: string | null
+  unitName: string | null
+}
+
+export type CommunicationAmount = {
+  id: number
+  fleetRegistrationId: number
+  matricule: string
+  employeeName: string
+  operatorName: string
+  accountNo: string | null
+  phoneNumber: string
+  serviceId: number
+  serviceName: string
+  amount: number
+  effectiveDate: string
+  current: boolean
+}
+
+export type CommunicationBatchAction = 'MODIFICATION' | 'REMOVAL' | 'CREATION'
+
+export type CommunicationBatchSummary = {
+  id: number
+  operatorId: number
+  operatorName: string
+  effectiveDate: string
+  endDate: string
+  createdAt: string
+  modificationCount: number
+  removalCount: number
+  inclusionCount: number
+}
+
+export type CommunicationBatchModification = {
+  employeeName: string
+  matricule: string
+  phoneNumber: string
+  accountNo: string | null
+  serviceName: string
+  previousAmount: number | null
+  amount: number
+}
+
+export type CommunicationBatchRemoval = {
+  employeeName: string
+  matricule: string
+  phoneNumber: string
+  accountNo: string | null
+  endDate: string
+}
+
+export type CommunicationBatchAdjustmentRow = {
+  employeeName: string
+  phoneNumber: string
+  airtime: number
+  data: number
+  total: number
+}
+
+export type CommunicationBatchReport = {
+  id: number
+  operatorId: number
+  operatorName: string
+  operatorEmail: string | null
+  effectiveDate: string
+  endDate: string
+  createdAt: string
+  modifications: CommunicationBatchModification[]
+  removals: CommunicationBatchRemoval[]
+  adjustments: CommunicationBatchAdjustmentRow[]
+  creations: CommunicationBatchAdjustmentRow[]
+}
 
 export type AllowanceEmployeeOption = {
   matricule: string

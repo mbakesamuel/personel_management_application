@@ -1,40 +1,45 @@
-import { Download, Eye, Printer, RefreshCw, X } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { Download, Printer, RefreshCw, X } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { htmlToPdfBytes } from '../lib/html-to-pdf'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { PdfViewer } from './PdfViewer'
+import { ViewErrorBoundary } from './ViewErrorBoundary'
 
 type ReportPreviewConsoleProps = {
   title: string
   onClose: () => void
   toolbar: ReactNode
-  /** On-screen report content (React pages). */
-  preview: ReactNode
   status: string | null
   alerts?: ReactNode
   loading?: boolean
   onRefresh?: () => void
   /** True when there is something to print/save. */
   hasData: boolean
-  /** Build printable HTML on demand (Print / Save PDF). */
-  getPrintHtml: () => string
+  /** Printable HTML for the PDF preview, print, and save. */
+  printHtml: string
   printOptions?: { landscape?: boolean }
   defaultPdfName: string
   refreshDisabled?: boolean
   emptyMessage?: string
 }
 
+function ownedPdfBytes(bytes: Uint8Array): Uint8Array {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return copy
+}
+
 export function ReportPreviewConsole({
   title,
   onClose,
   toolbar,
-  preview,
   status,
   alerts,
   loading = false,
   onRefresh,
   hasData,
-  getPrintHtml,
+  printHtml,
   printOptions,
   defaultPdfName,
   refreshDisabled = false,
@@ -43,19 +48,48 @@ export function ReportPreviewConsole({
   const [printing, setPrinting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [actionStatus, setActionStatus] = useState<string | null>(null)
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
   const landscape = printOptions?.landscape === true
 
-  function handlePreview() {
-    if (!hasData) {
-      setActionStatus('Nothing to preview.')
+  useEffect(() => {
+    if (loading || !hasData || printHtml.trim().length === 0) {
+      setPdfBytes(null)
+      setPdfError(null)
+      setPdfLoading(false)
       return
     }
-    setActionStatus(null)
-    onRefresh?.()
-  }
+    let cancelled = false
+    setPdfLoading(true)
+    setPdfError(null)
+    setPdfBytes(null)
+    void htmlToPdfBytes(printHtml, { landscape })
+      .then((bytes) => {
+        if (cancelled) return
+        const source = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+        if (source.byteLength < 5) throw new Error('PDF generation returned empty output')
+        const next = ownedPdfBytes(source)
+        const header = String.fromCharCode(next[0]!, next[1]!, next[2]!, next[3]!, next[4]!)
+        if (header !== '%PDF-') throw new Error('PDF generation returned invalid output')
+        setPdfBytes(next)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setPdfBytes(null)
+          setPdfError(err instanceof Error ? err.message : 'Could not open the report')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPdfLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hasData, landscape, loading, printHtml])
 
   async function handlePrint() {
-    if (!hasData) {
+    if (!hasData || printHtml.trim().length === 0) {
       setActionStatus('Nothing to print.')
       return
     }
@@ -68,8 +102,7 @@ export function ReportPreviewConsole({
     setPrinting(true)
     setActionStatus('Opening print dialog…')
     try {
-      const html = getPrintHtml()
-      await window.api.printHtml(html, { landscape })
+      await window.api.printHtml(printHtml, { landscape })
       setActionStatus(null)
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : String(err))
@@ -79,7 +112,7 @@ export function ReportPreviewConsole({
   }
 
   async function handleSavePdf() {
-    if (!hasData) {
+    if (!pdfBytes || pdfBytes.byteLength === 0) {
       setActionStatus('Nothing to save.')
       return
     }
@@ -92,18 +125,11 @@ export function ReportPreviewConsole({
     setSaving(true)
     setActionStatus('Saving PDF…')
     try {
-      const html = getPrintHtml()
-      const data = await htmlToPdfBytes(html, { landscape })
-      const bytes =
-        data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer)
-      if (bytes.byteLength === 0) {
-        throw new Error('PDF generation returned empty output')
-      }
       const result = await window.api.savePdf({
         defaultName: defaultPdfName,
-        data: bytes,
+        data: ownedPdfBytes(pdfBytes),
       })
-      if ('cancelled' in result && result.cancelled) {
+      if (!('path' in result)) {
         setActionStatus(null)
         return
       }
@@ -115,7 +141,7 @@ export function ReportPreviewConsole({
     }
   }
 
-  const busy = loading || printing || saving
+  const busy = loading || printing || saving || pdfLoading
   const displayStatus = actionStatus ?? status
 
   return (
@@ -137,16 +163,6 @@ export function ReportPreviewConsole({
           ) : null}
           <Button
             type="button"
-            variant="outline"
-            size="sm"
-            onClick={handlePreview}
-            disabled={busy || !hasData}
-          >
-            <Eye className="size-4" />
-            Preview
-          </Button>
-          <Button
-            type="button"
             size="sm"
             onClick={() => void handlePrint()}
             disabled={busy || !hasData}
@@ -159,7 +175,7 @@ export function ReportPreviewConsole({
             variant="outline"
             size="sm"
             onClick={() => void handleSavePdf()}
-            disabled={busy || !hasData}
+            disabled={busy || !pdfBytes}
           >
             <Download className="size-4" />
             {saving ? 'Saving…' : 'Save PDF'}
@@ -181,13 +197,15 @@ export function ReportPreviewConsole({
 
       {alerts}
 
-      <div className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-muted/30 p-3">
+      <div className="flex min-h-0 flex-1 flex-col">
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading report…</p>
-        ) : hasData ? (
-          preview
+        ) : !hasData ? (
+          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         ) : (
-          <p className="p-3 text-sm text-muted-foreground">{emptyMessage}</p>
+          <ViewErrorBoundary label="The report preview crashed">
+            <PdfViewer data={pdfBytes} loading={pdfLoading} error={pdfError} />
+          </ViewErrorBoundary>
         )}
       </div>
     </section>

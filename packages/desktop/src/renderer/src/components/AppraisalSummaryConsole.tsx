@@ -11,8 +11,11 @@ import { createApiClient } from '../api/client'
 import { formatDisplayDate } from '../lib/format-date'
 import { LOGO_DATA_URI } from '../lib/logo'
 import {
+  buildReportFooterHtml,
+  REPORT_FOOTER_PRINT_CSS,
+} from './ReportFooter'
+import {
   buildReportHeaderHtml,
-  ReportHeader,
   REPORT_HEADER_PRINT_CSS,
 } from './ReportHeader'
 import { ReportPreviewConsole } from './ReportPreviewConsole'
@@ -47,175 +50,6 @@ function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
 }
 
-function SummarySectionPage({
-  section,
-  appyear,
-  pageIndex,
-  pageCount,
-}: {
-  section: AppraisalSummarySection
-  appyear: number | null
-  pageIndex: number
-  pageCount: number
-}) {
-  const signatory = [section.signatoryName, section.signatoryTitle]
-    .filter(Boolean)
-    .join(', ')
-    .toUpperCase()
-
-  return (
-    <article className="summary-page mb-8 overflow-x-auto bg-white p-4 text-[11px] text-black shadow-sm">
-      <ReportHeader
-        department={section.groupName}
-        serviceName={section.unitName}
-        title={`${appyear ?? '—'} PERFORMANCE APPRAISALS 1 - 3`}
-      />
-      <p className="m-0 mt-2 text-left text-[12px] font-bold uppercase">
-        SECTION: {section.sectionName}
-      </p>
-
-      <table className="mt-2 w-full border-collapse text-[10px] leading-tight">
-        <thead>
-          <tr className="border border-black bg-muted/40 text-center font-bold uppercase">
-            <th className="border border-black px-0.5 py-1" rowSpan={2}>
-              SN
-            </th>
-            <th className="border border-black px-0.5 py-1" rowSpan={2}>
-              Mat No
-            </th>
-            <th className="border border-black px-0.5 py-1" rowSpan={2}>
-              Name
-            </th>
-            <th className="border border-black px-0.5 py-1" rowSpan={2}>
-              Design
-            </th>
-            <th className="border border-black px-0.5 py-1" rowSpan={2}>
-              D. Eng
-            </th>
-            <th className="border border-black px-0.5 py-1" rowSpan={2}>
-              Dur in Post (Yr)
-            </th>
-            <th className="border border-black px-0.5 py-1" colSpan={3}>
-              Date of Last
-            </th>
-            <th className="border border-black px-0.5 py-1" colSpan={2}>
-              Cat/Ech
-            </th>
-            <th className="border border-black px-0.5 py-1" colSpan={2}>
-              Salary
-            </th>
-            <th className="border border-black px-0.5 py-1" colSpan={2}>
-              Fin. Inc
-            </th>
-            <th className="border border-black px-0.5 py-1" rowSpan={2}>
-              EM&apos;s Remarks
-            </th>
-          </tr>
-          <tr className="border border-black bg-muted/40 text-center font-bold uppercase">
-            <th className="border border-black px-0.5 py-1">Prom/Recl</th>
-            <th className="border border-black px-0.5 py-1">Merit</th>
-            <th className="border border-black px-0.5 py-1">Stat.</th>
-            <th className="border border-black px-0.5 py-1">Pres</th>
-            <th className="border border-black px-0.5 py-1">Pro</th>
-            <th className="border border-black px-0.5 py-1">Pres</th>
-            <th className="border border-black px-0.5 py-1">Pros</th>
-            <th className="border border-black px-0.5 py-1">Per Month</th>
-            <th className="border border-black px-0.5 py-1">Per Year</th>
-          </tr>
-        </thead>
-        <tbody>
-          {section.rows.map((row) => (
-            <tr key={`${section.sectionId}-${row.matric}-${row.sn}`}>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {row.sn}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {row.matric}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 uppercase">
-                {row.names ?? ''}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 uppercase">
-                {row.designation ?? ''}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {formatDisplayDate(row.dateEng)}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {row.lengthService ?? ''}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {formatDisplayDate(row.dateLpro)}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {formatDisplayDate(row.dateLmer)}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {formatDisplayDate(row.dateLstat)}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {row.preCat ?? ''}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-center">
-                {row.proCat ?? ''}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-right">
-                {formatNumber(row.preSalary)}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-right">
-                {formatNumber(row.proSalary)}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-right">
-                {formatNumber(row.finIncMonth)}
-              </td>
-              <td className="border border-black px-0.5 py-0.5 text-right">
-                {formatNumber(row.finIncYear)}
-              </td>
-              <td className="border border-black px-0.5 py-0.5">
-                {row.award ?? ''}
-              </td>
-            </tr>
-          ))}
-          <tr className="font-bold">
-            <td
-              className="border border-black px-0.5 py-1 text-right uppercase"
-              colSpan={11}
-            >
-              Total
-            </td>
-            <td className="border border-black px-0.5 py-1 text-right">
-              {formatNumber(section.totals.preSalary)}
-            </td>
-            <td className="border border-black px-0.5 py-1 text-right">
-              {formatNumber(section.totals.proSalary)}
-            </td>
-            <td className="border border-black px-0.5 py-1 text-right">
-              {formatNumber(section.totals.finIncMonth)}
-            </td>
-            <td className="border border-black px-0.5 py-1 text-right">
-              {formatNumber(section.totals.finIncYear)}
-            </td>
-            <td className="border border-black px-0.5 py-1" />
-          </tr>
-        </tbody>
-      </table>
-
-      {signatory ? (
-        <p className="mt-8 text-center text-[12px] font-bold uppercase">
-          {signatory}
-        </p>
-      ) : null}
-
-      <footer className="mt-6 flex justify-between border-t border-black pt-1 text-[10px] font-semibold uppercase">
-        <span>Annual Salary Review for {appyear ?? '—'}</span>
-        <span>
-          Page {pageIndex} of {pageCount}
-        </span>
-      </footer>
-    </article>
-  )
-}
-
 function buildPrintHtml(
   sections: AppraisalSummarySection[],
   appyear: number | null,
@@ -224,19 +58,14 @@ function buildPrintHtml(
   const title = `${appyear ?? '—'} PERFORMANCE APPRAISALS 1 - 3`
   const pages = sections
     .map((section, index) => {
-      const signatory = [section.signatoryName, section.signatoryTitle]
-        .filter(Boolean)
-        .join(', ')
-        .toUpperCase()
-
       const bodyRows = section.rows
         .map(
           (row) => `
         <tr>
           <td class="c">${row.sn}</td>
           <td class="c">${escapeHtml(row.matric)}</td>
-          <td class="u">${escapeHtml(row.names ?? '')}</td>
-          <td class="u">${escapeHtml(row.designation ?? '')}</td>
+          <td class="u wrap"><div>${escapeHtml(row.names ?? '')}</div></td>
+          <td class="u wrap"><div>${escapeHtml(row.designation ?? '')}</div></td>
           <td class="c">${escapeHtml(formatDisplayDate(row.dateEng))}</td>
           <td class="c">${escapeHtml(row.lengthService ?? '')}</td>
           <td class="c">${escapeHtml(formatDisplayDate(row.dateLpro))}</td>
@@ -248,7 +77,7 @@ function buildPrintHtml(
           <td class="r">${formatNumber(row.proSalary)}</td>
           <td class="r">${formatNumber(row.finIncMonth)}</td>
           <td class="r">${formatNumber(row.finIncYear)}</td>
-          <td>${escapeHtml(row.award ?? '')}</td>
+          <td class="wrap"><div>${escapeHtml(row.award ?? '')}</div></td>
         </tr>`,
         )
         .join('')
@@ -258,6 +87,11 @@ function buildPrintHtml(
         serviceName: section.unitName,
         title,
         logoDataUri: LOGO_DATA_URI,
+        escapeHtml,
+      })
+      const signatureHtml = buildReportFooterHtml({
+        name: section.signatoryName,
+        label: section.signatoryTitle,
         escapeHtml,
       })
 
@@ -304,7 +138,7 @@ function buildPrintHtml(
             </tr>
           </tbody>
         </table>
-        ${signatory ? `<p class="sign">${escapeHtml(signatory)}</p>` : ''}
+        ${signatureHtml}
         <footer class="ftr">
           <span>ANNUAL SALARY REVIEW FOR ${appyear ?? '—'}</span>
           <span>Page ${index + 1} of ${pageCount}</span>
@@ -319,22 +153,37 @@ function buildPrintHtml(
   <meta charset="utf-8" />
   <title>Appraisal Summary ${appyear ?? ''}</title>
   <style>
-    @page { size: A4 landscape; margin: 8mm; }
+    @page { size: A4 landscape; margin: 8mm 2mm 8mm 2mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 11pt; }
-    .page { page-break-after: always; }
+    body { margin: 0; font-family: "Arial Narrow", Arial, sans-serif; color: #000; font-size: 9pt; }
+    .page {
+      page-break-after: always;
+      display: flex;
+      flex-direction: column;
+      min-height: 192mm;
+    }
     .page:last-child { page-break-after: auto; }
     ${REPORT_HEADER_PRINT_CSS}
-    .section-label { margin: 6px 0 0; text-align: left; font-weight: 700; text-transform: uppercase; font-size: 11pt; }
-    table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-    th, td { border: 1px solid #000; padding: 2px 3px; vertical-align: middle; }
-    th { text-transform: uppercase; font-size: 9pt; }
+    ${REPORT_FOOTER_PRINT_CSS}
+    .rh-company-name, .rh-line, .rh-title, .rh-tiles span,
+    .rf, .rf-name, .rf-label { font-family: "Arial Narrow", Arial, sans-serif; font-size: 10pt; }
+    .section-label { margin: 6px 0 0; text-align: left; font-weight: 700; text-transform: uppercase; font-size: 10pt; }
+    table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 10pt; }
+    th, td { border: 1px solid #000; padding: 2px 3px; vertical-align: middle; font-size: 10pt; }
+    th { text-transform: uppercase; }
     .c { text-align: center; }
     .r { text-align: right; }
     .u { text-transform: uppercase; }
+    td.wrap div {
+      display: inline-block;
+      max-width: 42mm;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: bottom;
+    }
     .total { font-weight: 700; }
-    .sign { margin-top: 28px; text-align: center; font-weight: 700; text-transform: uppercase; font-size: 11pt; }
-    .ftr { margin-top: 18px; display: flex; justify-content: space-between; border-top: 1px solid #000; padding-top: 4px; font-weight: 700; text-transform: uppercase; font-size: 10pt; }
+    .ftr { margin-top: auto; display: flex; justify-content: space-between; border-top: 1px solid #000; padding-top: 4px; font-weight: 700; text-transform: uppercase; font-size: 10pt; }
   </style>
 </head>
 <body>${pages}</body>
@@ -474,6 +323,11 @@ export function AppraisalSummaryConsole({
     appyear != null
       ? `appraisal-summary-${appyear}.pdf`
       : 'appraisal-summary.pdf'
+  const printHtml = useMemo(
+    () =>
+      sectionsData.length > 0 ? buildPrintHtml(sectionsData, appyear) : '',
+    [sectionsData, appyear],
+  )
 
   return (
     <ReportPreviewConsole
@@ -483,19 +337,10 @@ export function AppraisalSummaryConsole({
       loading={loading}
       onRefresh={() => void loadReport()}
       hasData={sectionsData.length > 0}
-      getPrintHtml={() => buildPrintHtml(sectionsData, appyear)}
+      printHtml={printHtml}
       printOptions={printOptions}
       defaultPdfName={defaultPdfName}
       emptyMessage="No summary pages to display."
-      preview={sectionsData.map((section, index) => (
-        <SummarySectionPage
-          key={section.sectionId ?? section.sectionName}
-          section={section}
-          appyear={appyear}
-          pageIndex={index + 1}
-          pageCount={sectionsData.length}
-        />
-      ))}
       toolbar={
         <Card className="shrink-0 py-3">
           <CardContent className="flex flex-wrap items-end gap-3 px-3">

@@ -12,11 +12,13 @@ export type LiveEmployee = {
   dateBirth: Date
   dateEng: Date | null
   designation: string | null
+  jobTitle: string | null
   category: string | null
   echelon: string | null
   preCat: string | null
   codeUnit: string | null
   unitName: string | null
+  groupName: string | null
 }
 
 /** Employees that workflows may use: validated and still active. */
@@ -92,23 +94,35 @@ function preCatFrom(category: string | null, echelon: string | null): string | n
   return formatted || null
 }
 
-async function unitNameByCodes(
+async function unitPlaceByCodes(
   codes: string[],
-): Promise<Map<string, string | null>> {
-  const names = new Map<string, string | null>()
-  if (codes.length === 0) return names
+): Promise<Map<string, { unitName: string | null; groupName: string | null }>> {
+  const places = new Map<string, { unitName: string | null; groupName: string | null }>()
+  if (codes.length === 0) return places
 
   const lookupIds = [...new Set(codes.flatMap(unitIdCandidates))]
   const units = await prisma.tbl_unit.findMany({
     where: { id: { in: lookupIds } },
-    select: { id: true, unit_name: true },
+    select: { id: true, unit_name: true, groupid: true },
   })
+  const groupIds = [...new Set(units.map((unit) => unit.groupid))]
+  const groups =
+    groupIds.length === 0
+      ? []
+      : await prisma.tbl_group.findMany({
+          where: { id: { in: groupIds } },
+          select: { id: true, group_name: true },
+        })
+  const groupNameById = new Map(groups.map((group) => [group.id, group.group_name]))
 
   for (const code of codes) {
     const match = units.find((unit) => unitCodesMatch(unit.id, code))
-    names.set(code, match?.unit_name ?? null)
+    places.set(code, {
+      unitName: match?.unit_name ?? null,
+      groupName: match ? (groupNameById.get(match.groupid) ?? null) : null,
+    })
   }
-  return names
+  return places
 }
 
 export async function resolveLiveEmployees(
@@ -199,7 +213,7 @@ export async function resolveLiveEmployees(
     const movement = movementByMatric.get(employee.matricule)
     return normalizeUnitCode(movement?.To_unit_id)
   })
-  const unitNames = await unitNameByCodes(
+  const unitPlaces = await unitPlaceByCodes(
     codeUnits.filter((code): code is string => code != null),
   )
 
@@ -218,11 +232,13 @@ export async function resolveLiveEmployees(
       dateBirth: employee.dateBirth,
       dateEng: employment?.dateEng ?? null,
       designation: movement?.Position ?? employment?.jobEng ?? null,
+      jobTitle: employment?.jobEng ?? null,
       category,
       echelon,
       preCat: preCatFrom(category, echelon),
       codeUnit,
-      unitName: codeUnit ? (unitNames.get(codeUnit) ?? null) : null,
+      unitName: codeUnit ? (unitPlaces.get(codeUnit)?.unitName ?? null) : null,
+      groupName: codeUnit ? (unitPlaces.get(codeUnit)?.groupName ?? null) : null,
     })
   }
 
