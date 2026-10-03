@@ -297,26 +297,54 @@ export async function importFleetBatch(
       async (tx) => {
         for (let i = 0; i < validRegistrations.length; i += INSERT_CHUNK) {
           const chunk = validRegistrations.slice(i, i + INSERT_CHUNK)
+          const accountIds = new Map<string, number>()
+          for (const row of chunk) {
+            const accountNo = emptyToNull(row.accountNo)
+            if (!accountNo) continue
+            const key = `${row.operatorId}\0${accountNo}`
+            if (accountIds.has(key)) continue
+            const existing = await tx.operator_Account.findUnique({
+              where: {
+                operator_id_accountNo: {
+                  operator_id: row.operatorId,
+                  accountNo,
+                },
+              },
+              select: { id: true },
+            })
+            const account =
+              existing ??
+              (await tx.operator_Account.create({
+                data: { operator_id: row.operatorId, accountNo },
+                select: { id: true },
+              }))
+            accountIds.set(key, account.id)
+          }
           await tx.fleetRegistration.createMany({
-            data: chunk.map((row) => ({
-              id: row.id,
-              matricule: row.matricule.trim(),
-              operator_id: row.operatorId,
-              allowanceId: row.allowanceId.trim(),
-              accountNo: emptyToNull(row.accountNo),
-              phoneNumber: row.phoneNumber.trim(),
-              effectiveDate: parseDateOnly(row.effectiveDate),
-              endDate: row.endDate ? parseDateOnly(row.endDate) : null,
-              replacedById: null,
-              isActive: row.isActive ?? !row.endDate,
-              includedInBatch: row.includedInBatch ?? false,
-              ...(row.createdAt
-                ? { createdAt: parseDateOnly(row.createdAt) }
-                : {}),
-              ...(row.updatedAt
-                ? { updatedAt: parseDateOnly(row.updatedAt) }
-                : {}),
-            })),
+            data: chunk.map((row) => {
+              const accountNo = emptyToNull(row.accountNo)
+              return {
+                id: row.id,
+                matricule: row.matricule.trim(),
+                operator_id: row.operatorId,
+                allowanceId: row.allowanceId.trim(),
+                operator_AccountId: accountNo
+                  ? (accountIds.get(`${row.operatorId}\0${accountNo}`) ?? null)
+                  : null,
+                phoneNumber: emptyToNull(row.phoneNumber),
+                effectiveDate: parseDateOnly(row.effectiveDate),
+                endDate: row.endDate ? parseDateOnly(row.endDate) : null,
+                replacedById: null,
+                isActive: row.isActive ?? !row.endDate,
+                includedInBatch: row.includedInBatch ?? false,
+                ...(row.createdAt
+                  ? { createdAt: parseDateOnly(row.createdAt) }
+                  : {}),
+                ...(row.updatedAt
+                  ? { updatedAt: parseDateOnly(row.updatedAt) }
+                  : {}),
+              }
+            }),
           })
         }
         for (const link of links) {

@@ -7,6 +7,7 @@ import {
   type CommunicationOperator,
   type CommunicationRegistration,
   type CommunicationServiceOption,
+  type OperatorAccount,
 } from '@personel-management-app/shared'
 import { Phone, Plus, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -54,7 +55,7 @@ type RegistrationForm = {
   employeeName: string
   operatorId: string
   allowanceId: string
-  accountNo: string
+  operatorAccountId: string
   phoneNumber: string
   effectiveDate: string
 }
@@ -99,6 +100,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
   const [status, setStatus] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [operators, setOperators] = useState<CommunicationOperator[]>([])
+  const [accounts, setAccounts] = useState<OperatorAccount[]>([])
   const [registrations, setRegistrations] = useState<CommunicationRegistration[]>([])
   const [amounts, setAmounts] = useState<CommunicationAmount[]>([])
   const [services, setServices] = useState<CommunicationServiceOption[]>([])
@@ -109,7 +111,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
     employeeName: '',
     operatorId: '',
     allowanceId: '',
-    accountNo: '',
+    operatorAccountId: '',
     phoneNumber: '',
     effectiveDate: today(),
   })
@@ -119,7 +121,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
     useState<CommunicationRegistration | null>(null)
   const [endDate, setEndDate] = useState(today())
   const [transferOperatorId, setTransferOperatorId] = useState('')
-  const [transferAccount, setTransferAccount] = useState('')
+  const [transferAccountId, setTransferAccountId] = useState('')
   const [transferPhone, setTransferPhone] = useState('')
   const [transferDate, setTransferDate] = useState(today())
   const [amountRegistrationId, setAmountRegistrationId] = useState('')
@@ -133,13 +135,14 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
     setStatus(null)
     try {
       const client = await createApiClient()
-      const [operatorsRes, registrationsRes, amountsRes, servicesRes, allowancesRes] =
+      const [operatorsRes, registrationsRes, amountsRes, servicesRes, allowancesRes, accountsRes] =
         await Promise.all([
           client.communication.operators.$get(),
           client.communication.registrations.$get(),
           client.communication.amounts.$get(),
           client.communication.services.$get(),
           client.communication.allowances.$get(),
+          client.communication['operator-accounts'].$get(),
         ])
       if (!operatorsRes.ok) throw new Error(await readError(operatorsRes, 'Failed to load operators'))
       if (!registrationsRes.ok) {
@@ -150,11 +153,15 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
       if (!allowancesRes.ok) {
         throw new Error(await readError(allowancesRes, 'Failed to load allowances'))
       }
+      if (!accountsRes.ok) {
+        throw new Error(await readError(accountsRes, 'Failed to load accounts'))
+      }
       setOperators((await operatorsRes.json()) as CommunicationOperator[])
       setRegistrations((await registrationsRes.json()) as CommunicationRegistration[])
       setAmounts((await amountsRes.json()) as CommunicationAmount[])
       setServices((await servicesRes.json()) as CommunicationServiceOption[])
       setAllowances((await allowancesRes.json()) as CommunicationAllowanceOption[])
+      setAccounts((await accountsRes.json()) as OperatorAccount[])
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Failed to load')
     } finally {
@@ -212,7 +219,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
       employeeName: '',
       operatorId: '',
       allowanceId: communicationAllowances[0]?.id ?? '',
-      accountNo: '',
+      operatorAccountId: '',
       phoneNumber: '',
       effectiveDate: today(),
     })
@@ -253,7 +260,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
       ['Operator', row.operatorName],
       ['Allowance', row.allowanceName],
       ['Account', row.accountNo ?? '—'],
-      ['Phone', row.phoneNumber],
+      ['Phone', row.phoneNumber || '—'],
       ['Joined', row.effectiveDate],
       ['Ended', row.endDate ?? '—'],
       ['Status', row.endDate == null ? 'Open' : 'Closed'],
@@ -294,9 +301,13 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
       )
       if (
         operator &&
+        registrationForm.phoneNumber.trim() &&
         !phoneMatchesPrefixRanges(registrationForm.phoneNumber, operator.prefixes)
       ) {
         throw new Error(PHONE_OUTSIDE_PREFIX_RANGES)
+      }
+      if (operator?.usesAccounts && !registrationForm.operatorAccountId) {
+        throw new Error('Account is required for this operator')
       }
       const client = await createApiClient()
       const res = await client.communication.registrations.$post({
@@ -304,7 +315,9 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
           matricule: registrationForm.matricule,
           operatorId: Number(registrationForm.operatorId),
           allowanceId: registrationForm.allowanceId,
-          accountNo: registrationForm.accountNo.trim(),
+          operatorAccountId: operator?.usesAccounts
+            ? Number(registrationForm.operatorAccountId)
+            : null,
           phoneNumber: registrationForm.phoneNumber.trim(),
           effectiveDate: registrationForm.effectiveDate,
         },
@@ -345,15 +358,22 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
     setLoading(true)
     try {
       const operator = activeOperators.find((row) => String(row.id) === transferOperatorId)
-      if (operator && !phoneMatchesPrefixRanges(transferPhone, operator.prefixes)) {
+      if (
+        operator &&
+        transferPhone.trim() &&
+        !phoneMatchesPrefixRanges(transferPhone, operator.prefixes)
+      ) {
         throw new Error(PHONE_OUTSIDE_PREFIX_RANGES)
+      }
+      if (operator?.usesAccounts && !transferAccountId) {
+        throw new Error('Account is required for this operator')
       }
       const client = await createApiClient()
       const res = await client.communication.registrations[':id'].transfer.$post({
         param: { id: String(actionRegistration.id) },
         json: {
           operatorId: Number(transferOperatorId),
-          accountNo: transferAccount.trim(),
+          operatorAccountId: operator?.usesAccounts ? Number(transferAccountId) : null,
           phoneNumber: transferPhone.trim(),
           effectiveDate: transferDate,
         },
@@ -476,7 +496,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
                     </TableCell>
                     <TableCell>{row.operatorName}</TableCell>
                     <TableCell>{row.accountNo ?? '—'}</TableCell>
-                    <TableCell>{row.phoneNumber}</TableCell>
+                    <TableCell>{row.phoneNumber || '—'}</TableCell>
                     {services.map((service) => {
                       const value = currentAmount(row.id, service.id)
                       return (
@@ -521,7 +541,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
                               setActionRegistration(row)
                               const other = activeOperators.find((op) => op.id !== row.operatorId)
                               setTransferOperatorId(other ? String(other.id) : '')
-                              setTransferAccount('')
+                              setTransferAccountId('')
                               setTransferPhone('')
                               setTransferDate(today())
                               setFormError(null)
@@ -611,7 +631,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
               setRegistrationForm((prev) => ({
                 ...prev,
                 operatorId: value,
-                accountNo: operator?.usesAccounts ? prev.accountNo : '',
+                operatorAccountId: '',
               }))
             }}
           >
@@ -648,14 +668,26 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
         </FormDialogRow>
         {activeOperators.find((row) => String(row.id) === registrationForm.operatorId)
           ?.usesAccounts ? (
-          <FormDialogRow label="Account" htmlFor="reg-account">
-            <Input
-              id="reg-account"
-              value={registrationForm.accountNo}
-              onChange={(e) =>
-                setRegistrationForm((prev) => ({ ...prev, accountNo: e.target.value }))
+          <FormDialogRow label="Account">
+            <Select
+              value={registrationForm.operatorAccountId || undefined}
+              onValueChange={(value) =>
+                setRegistrationForm((prev) => ({ ...prev, operatorAccountId: value }))
               }
-            />
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts
+                  .filter((row) => String(row.operatorId) === registrationForm.operatorId)
+                  .map((row) => (
+                    <SelectItem key={row.id} value={String(row.id)}>
+                      {row.accountNo}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </FormDialogRow>
         ) : null}
         <FormDialogRow label="Phone" htmlFor="reg-phone">
@@ -668,7 +700,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
           />
           {registrationOperator && registrationOperator.prefixes.length > 0 ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Must start with {formatRanges(registrationOperator.prefixes)}
+              If set, must start with {formatRanges(registrationOperator.prefixes)}
             </p>
           ) : null}
         </FormDialogRow>
@@ -734,7 +766,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
             onValueChange={(value) => {
               const operator = activeOperators.find((row) => String(row.id) === value)
               setTransferOperatorId(value)
-              if (!operator?.usesAccounts) setTransferAccount('')
+              if (!operator?.usesAccounts) setTransferAccountId('')
             }}
           >
             <SelectTrigger>
@@ -752,12 +784,24 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
           </Select>
         </FormDialogRow>
         {activeOperators.find((row) => String(row.id) === transferOperatorId)?.usesAccounts ? (
-          <FormDialogRow label="New account" htmlFor="transfer-account">
-            <Input
-              id="transfer-account"
-              value={transferAccount}
-              onChange={(e) => setTransferAccount(e.target.value)}
-            />
+          <FormDialogRow label="New account">
+            <Select
+              value={transferAccountId || undefined}
+              onValueChange={setTransferAccountId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts
+                  .filter((row) => String(row.operatorId) === transferOperatorId)
+                  .map((row) => (
+                    <SelectItem key={row.id} value={String(row.id)}>
+                      {row.accountNo}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </FormDialogRow>
         ) : null}
         <FormDialogRow label="New phone" htmlFor="transfer-phone">
@@ -768,7 +812,7 @@ export function RegistrationsConsole({ onClose }: RegistrationsConsoleProps) {
           />
           {transferOperator && transferOperator.prefixes.length > 0 ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Must start with {formatRanges(transferOperator.prefixes)}
+              If set, must start with {formatRanges(transferOperator.prefixes)}
             </p>
           ) : null}
         </FormDialogRow>

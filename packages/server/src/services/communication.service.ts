@@ -15,7 +15,10 @@ import {
   type CommunicationRegistrationRemoveInput,
   type CommunicationRegistrationTransferInput,
   type CommunicationServiceOption,
+  type OperatorAccount,
+  type OperatorAccountUpsertInput,
 } from '@personel-management-app/shared'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 import {
   formatEmployeeName,
@@ -92,9 +95,10 @@ function blankToNull(value: string): string | null {
 }
 
 function assertPhoneInRanges(
-  phoneNumber: string,
+  phoneNumber: string | null,
   ranges: { rangeStart: string; rangeEnd: string }[],
 ) {
+  if (!phoneNumber) return
   const matches = phoneMatchesPrefixRanges(
     phoneNumber,
     ranges.map((range) => ({ start: range.rangeStart, end: range.rangeEnd })),
@@ -102,13 +106,40 @@ function assertPhoneInRanges(
   if (!matches) throw new PersonnelConflictError(PHONE_OUTSIDE_PREFIX_RANGES)
 }
 
-function accountForOperator(usesAccounts: boolean, accountNo: string): string | null {
-  const trimmed = accountNo.trim()
+function phoneOrNull(phoneNumber: string): string | null {
+  const trimmed = phoneNumber.trim()
+  return trimmed.length === 0 ? null : trimmed
+}
+
+async function resolveOperatorAccountId(
+  operatorId: number,
+  usesAccounts: boolean,
+  operatorAccountId: number | null | undefined,
+): Promise<number | null> {
   if (!usesAccounts) return null
-  if (!trimmed) {
+  if (operatorAccountId == null) {
     throw new PersonnelConflictError('Account is required for this operator')
   }
-  return trimmed
+  const account = await prisma.operator_Account.findFirst({
+    where: { id: operatorAccountId, operator_id: operatorId },
+    select: { id: true },
+  })
+  if (!account) {
+    throw new PersonnelConflictError('Choose an account for this operator')
+  }
+  return account.id
+}
+
+function duplicateAccountError(err: unknown): never {
+  if (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    err.code === 'P2002'
+  ) {
+    throw new PersonnelConflictError(
+      'This operator already has that account number',
+    )
+  }
+  throw err
 }
 
 async function replacePrefixes(
@@ -192,6 +223,95 @@ export const communicationService = {
     return updated!
   },
 
+  async listOperatorAccounts(): Promise<OperatorAccount[]> {
+    const rows = await prisma.operator_Account.findMany({
+      include: { operator: { select: { name: true } } },
+      orderBy: [{ operator: { name: 'asc' } }, { accountNo: 'asc' }],
+    })
+    return rows.map((row) => ({
+      id: row.id,
+      operatorId: row.operator_id,
+      operatorName: row.operator?.name ?? '',
+      accountNo: row.accountNo,
+    }))
+  },
+
+  async createOperatorAccount(
+    input: OperatorAccountUpsertInput,
+  ): Promise<OperatorAccount> {
+    const operator = await prisma.tbl_operator.findUnique({
+      where: { id: input.operatorId },
+      select: { id: true },
+    })
+    if (!operator) throw new PersonnelNotFoundError('Operator not found')
+    try {
+      const row = await prisma.operator_Account.create({
+        data: {
+          operator_id: input.operatorId,
+          accountNo: input.accountNo.trim(),
+        },
+      })
+      const [created] = await this.listOperatorAccounts().then((rows) =>
+        rows.filter((item) => item.id === row.id),
+      )
+      return created!
+    } catch (err) {
+      duplicateAccountError(err)
+    }
+  },
+
+  async updateOperatorAccount(
+    id: number,
+    input: OperatorAccountUpsertInput,
+  ): Promise<OperatorAccount> {
+    const existing = await prisma.operator_Account.findUnique({ where: { id } })
+    if (!existing) throw new PersonnelNotFoundError('Account not found')
+    const operator = await prisma.tbl_operator.findUnique({
+      where: { id: input.operatorId },
+      select: { id: true },
+    })
+    if (!operator) throw new PersonnelNotFoundError('Operator not found')
+    if (existing.operator_id !== input.operatorId) {
+      const used = await prisma.fleetRegistration.count({
+        where: { operator_AccountId: id },
+      })
+      if (used > 0) {
+        throw new PersonnelConflictError(
+          'This account is used by a registration',
+        )
+      }
+    }
+    try {
+      await prisma.operator_Account.update({
+        where: { id },
+        data: {
+          operator_id: input.operatorId,
+          accountNo: input.accountNo.trim(),
+        },
+      })
+    } catch (err) {
+      duplicateAccountError(err)
+    }
+    const [updated] = await this.listOperatorAccounts().then((rows) =>
+      rows.filter((item) => item.id === id),
+    )
+    return updated!
+  },
+
+  async deleteOperatorAccount(id: number): Promise<void> {
+    const existing = await prisma.operator_Account.findUnique({ where: { id } })
+    if (!existing) throw new PersonnelNotFoundError('Account not found')
+    const used = await prisma.fleetRegistration.count({
+      where: { operator_AccountId: id },
+    })
+    if (used > 0) {
+      throw new PersonnelConflictError(
+        'This account is used by a registration',
+      )
+    }
+    await prisma.operator_Account.delete({ where: { id } })
+  },
+
   async listServices(): Promise<CommunicationServiceOption[]> {
     const rows = await prisma.service.findMany({ orderBy: { name: 'asc' } })
     return rows.map((row) => ({ id: row.id, name: row.name }))
@@ -213,6 +333,7 @@ export const communicationService = {
     const rows = await prisma.fleetRegistration.findMany({
       include: {
         operator: { select: { name: true } },
+        operatorAccount: { select: { accountNo: true } },
         employee: { select: { name: true, firstname: true } },
         allowance: { select: { allowanceName: true } },
       },
@@ -228,8 +349,8 @@ export const communicationService = {
       operatorName: row.operator?.name ?? '',
       allowanceId: row.allowanceId,
       allowanceName: row.allowance?.allowanceName ?? '',
-      accountNo: row.accountNo,
-      phoneNumber: row.phoneNumber,
+      accountNo: row.operatorAccount?.accountNo ?? null,
+      phoneNumber: row.phoneNumber ?? '',
       effectiveDate: toDateOnly(row.effectiveDate),
       endDate: row.endDate ? toDateOnly(row.endDate) : null,
       isActive: row.isActive,
@@ -282,14 +403,19 @@ export const communicationService = {
         'This employee already has an open registration with this operator',
       )
     }
-    assertPhoneInRanges(input.phoneNumber, operator.numberPrefixes)
+    assertPhoneInRanges(phoneOrNull(input.phoneNumber), operator.numberPrefixes)
+    const operatorAccountId = await resolveOperatorAccountId(
+      input.operatorId,
+      operator.usesAccounts,
+      input.operatorAccountId,
+    )
     const created = await prisma.fleetRegistration.create({
       data: {
         matricule,
         operator_id: input.operatorId,
         allowanceId: input.allowanceId,
-        accountNo: accountForOperator(operator.usesAccounts, input.accountNo),
-        phoneNumber: input.phoneNumber.trim(),
+        operator_AccountId: operatorAccountId,
+        phoneNumber: phoneOrNull(input.phoneNumber),
         effectiveDate: parseDate(input.effectiveDate, 'effectiveDate'),
         isActive: true,
       },
@@ -357,7 +483,12 @@ export const communicationService = {
         'Transfer date cannot be before the join date',
       )
     }
-    assertPhoneInRanges(input.phoneNumber, operator.numberPrefixes)
+    assertPhoneInRanges(phoneOrNull(input.phoneNumber), operator.numberPrefixes)
+    const operatorAccountId = await resolveOperatorAccountId(
+      input.operatorId,
+      operator.usesAccounts,
+      input.operatorAccountId,
+    )
     const open = await prisma.fleetRegistration.findFirst({
       where: {
         matricule: existing.matricule,
@@ -396,8 +527,8 @@ export const communicationService = {
           matricule: existing.matricule,
           operator_id: input.operatorId,
           allowanceId: existing.allowanceId,
-          accountNo: accountForOperator(operator.usesAccounts, input.accountNo),
-          phoneNumber: input.phoneNumber.trim(),
+          operator_AccountId: operatorAccountId,
+          phoneNumber: phoneOrNull(input.phoneNumber),
           effectiveDate,
           isActive: true,
         },
@@ -432,6 +563,7 @@ export const communicationService = {
         fleetRegistration: {
           include: {
             operator: { select: { name: true } },
+            operatorAccount: { select: { accountNo: true } },
             employee: { select: { name: true, firstname: true } },
           },
         },
@@ -464,8 +596,8 @@ export const communicationService = {
           )
         : row.fleetRegistration.matricule,
       operatorName: row.fleetRegistration.operator?.name ?? '',
-      accountNo: row.fleetRegistration.accountNo,
-      phoneNumber: row.fleetRegistration.phoneNumber,
+      accountNo: row.fleetRegistration.operatorAccount?.accountNo ?? null,
+      phoneNumber: row.fleetRegistration.phoneNumber ?? '',
       serviceId: row.serviceId,
       serviceName: row.service.name,
       amount: row.amount,
@@ -508,7 +640,7 @@ export const communicationService = {
             ? employeeName(row.employee.name, row.employee.firstname)
             : row.matricule),
         position: person?.designation ?? null,
-        phoneNumber: row.phoneNumber,
+        phoneNumber: row.phoneNumber ?? '',
         operatorId: row.operator_id,
         operatorName: row.operator?.name ?? '',
         airtime: airtimeDetails[0]
@@ -594,6 +726,7 @@ export const communicationService = {
             include: {
               fleetRegistration: {
                 include: {
+                  operatorAccount: { select: { accountNo: true } },
                   employee: { select: { name: true, firstname: true } },
                   fleetRegDetails: {
                     select: {
@@ -630,8 +763,8 @@ export const communicationService = {
         return line.amounts.map((amount) => ({
           employeeName: person,
           matricule: registration.matricule,
-          phoneNumber: registration.phoneNumber,
-          accountNo: registration.accountNo,
+          phoneNumber: registration.phoneNumber ?? '',
+          accountNo: registration.operatorAccount?.accountNo ?? null,
           serviceName: amount.service.name,
           previousAmount: amount.previousAmount,
           amount: amount.amount,
@@ -647,8 +780,8 @@ export const communicationService = {
         return {
           employeeName: person,
           matricule: registration.matricule,
-          phoneNumber: registration.phoneNumber,
-          accountNo: registration.accountNo,
+          phoneNumber: registration.phoneNumber ?? '',
+          accountNo: registration.operatorAccount?.accountNo ?? null,
           endDate: toDateOnly(row.endDate),
         }
       })
@@ -664,7 +797,7 @@ export const communicationService = {
           const data = serviceAmount(line, dataId, row.effectiveDate)
           return {
             employeeName: person,
-            phoneNumber: registration.phoneNumber,
+            phoneNumber: registration.phoneNumber ?? '',
             airtime,
             data,
             total: airtime + data,

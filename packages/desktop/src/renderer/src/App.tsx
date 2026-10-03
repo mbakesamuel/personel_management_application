@@ -24,6 +24,7 @@ import { ChangePassword } from "./components/ChangePassword";
 import { OrganizationConsole } from "./components/OrganizationConsole";
 import { AllowancesConsole } from "./components/AllowancesConsole";
 import { OperatorsConsole } from "@/components/OperatorsConsole";
+import { OperatorAccountsConsole } from "@/components/OperatorAccountsConsole";
 import { RegistrationsConsole } from "@/components/RegistrationsConsole";
 import { AllowanceChangesConsole } from "@/components/AllowanceChangesConsole";
 import { AllowanceHistoryConsole } from "@/components/AllowanceHistoryConsole";
@@ -73,6 +74,7 @@ export default function App() {
   useEffect(() => {
     if (
       (view === "operators" ||
+        view === "operator-accounts" ||
         view === "registrations" ||
         view === "allowance-changes" ||
         view === "allowance-history" ||
@@ -158,6 +160,10 @@ export default function App() {
             {
               view: "operators" as const,
               label: "Operators",
+            },
+            {
+              view: "operator-accounts" as const,
+              label: "Operator accounts",
             },
           ]
         : []),
@@ -512,6 +518,9 @@ export default function App() {
           ) : view === "operators" &&
             user.permissions.canCommunicationAllowance ? (
             <OperatorsConsole onClose={() => setView("home")} />
+          ) : view === "operator-accounts" &&
+            user.permissions.canCommunicationAllowance ? (
+            <OperatorAccountsConsole onClose={() => setView("home")} />
           ) : view === "registrations" &&
             user.permissions.canCommunicationAllowance ? (
             <RegistrationsConsole onClose={() => setView("home")} />

@@ -550,7 +550,7 @@ export const FleetImportRegistrationSchema = z.object({
   operatorId: z.number().int().positive(),
   allowanceId: z.string().trim().min(1).max(191),
   accountNo: z.string().trim().max(191).nullable().optional(),
-  phoneNumber: z.string().trim().min(1).max(191),
+  phoneNumber: z.string().trim().max(191).optional().default(''),
   effectiveDate: DateOnlySchema,
   endDate: DateOnlySchema.nullable().optional(),
   replacedById: z.number().int().positive().nullable().optional(),
@@ -635,12 +635,17 @@ export const CommunicationOperatorUpsertSchema = z
     }
   })
 
+export const OperatorAccountUpsertSchema = z.object({
+  operatorId: z.number().int().positive(),
+  accountNo: z.string().trim().min(1).max(191),
+})
+
 export const CommunicationRegistrationCreateSchema = z.object({
   matricule: z.string().trim().min(1).max(30),
   operatorId: z.number().int().positive(),
   allowanceId: z.string().trim().min(1).max(30),
-  accountNo: z.string().trim().max(40),
-  phoneNumber: z.string().trim().min(1).max(20),
+  operatorAccountId: z.number().int().positive().nullable().optional(),
+  phoneNumber: z.string().trim().max(20),
   effectiveDate: DateOnlySchema,
 })
 
@@ -650,8 +655,8 @@ export const CommunicationRegistrationRemoveSchema = z.object({
 
 export const CommunicationRegistrationTransferSchema = z.object({
   operatorId: z.number().int().positive(),
-  accountNo: z.string().trim().max(40),
-  phoneNumber: z.string().trim().min(1).max(20),
+  operatorAccountId: z.number().int().positive().nullable().optional(),
+  phoneNumber: z.string().trim().max(20),
   effectiveDate: DateOnlySchema,
 })
 
@@ -847,6 +852,9 @@ export type AllowanceKeywordBulkInput = z.infer<
 >
 export type CommunicationOperatorUpsertInput = z.infer<
   typeof CommunicationOperatorUpsertSchema
+>
+export type OperatorAccountUpsertInput = z.infer<
+  typeof OperatorAccountUpsertSchema
 >
 export type CommunicationRegistrationCreateInput = z.infer<
   typeof CommunicationRegistrationCreateSchema

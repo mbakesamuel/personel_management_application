@@ -33,6 +33,7 @@ export type AppView =
   | "personnel"
   | "allowances"
   | "operators"
+  | "operator-accounts"
   | "registrations"
   | "allowance-changes"
   | "allowance-history"

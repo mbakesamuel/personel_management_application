@@ -4,6 +4,7 @@ import {
   CommunicationAmountCreateSchema,
   CommunicationBatchCreateSchema,
   CommunicationOperatorUpsertSchema,
+  OperatorAccountUpsertSchema,
   CommunicationRegistrationCreateSchema,
   CommunicationRegistrationRemoveSchema,
   CommunicationRegistrationTransferSchema,
@@ -123,6 +124,37 @@ const communication = new Hono<{ Variables: AppVariables }>()
           c.req.valid('json'),
         ),
       ),
+  )
+  .get('/operator-accounts', async (c) =>
+    handle(c, () => communicationService.listOperatorAccounts()),
+  )
+  .post(
+    '/operator-accounts',
+    zValidator('json', OperatorAccountUpsertSchema),
+    async (c) =>
+      handle(
+        c,
+        () => communicationService.createOperatorAccount(c.req.valid('json')),
+        201,
+      ),
+  )
+  .patch(
+    '/operator-accounts/:id',
+    zValidator('param', IdParam),
+    zValidator('json', OperatorAccountUpsertSchema),
+    async (c) =>
+      handle(c, () =>
+        communicationService.updateOperatorAccount(
+          c.req.valid('param').id,
+          c.req.valid('json'),
+        ),
+      ),
+  )
+  .delete('/operator-accounts/:id', zValidator('param', IdParam), async (c) =>
+    handle(c, async () => {
+      await communicationService.deleteOperatorAccount(c.req.valid('param').id)
+      return { ok: true }
+    }),
   )
   .get('/services', async (c) =>
     handle(c, () => communicationService.listServices()),

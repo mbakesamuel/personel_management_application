@@ -263,14 +263,6 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
       })
       return
     }
-    if (!phoneNumber) {
-      errors.push({
-        sheet: 'fleet_registration',
-        row: excelRow,
-        message: 'Missing phoneNumber',
-      })
-      return
-    }
     if (effectiveDate === 'invalid' || !effectiveDate) {
       errors.push({
         sheet: 'fleet_registration',
@@ -286,7 +278,7 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
       matricule,
       operatorId,
       allowanceId,
-      phoneNumber,
+      phoneNumber: phoneNumber ?? '',
       effectiveDate,
     }
 

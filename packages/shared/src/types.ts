@@ -484,6 +484,13 @@ export type CommunicationPrefixRange = {
   end: string
 }
 
+export type OperatorAccount = {
+  id: number
+  operatorId: number
+  operatorName: string
+  accountNo: string
+}
+
 export type CommunicationOperator = {
   id: number
   name: string

@@ -917,10 +917,25 @@ model tbl_operator {
   numberPrefixes number_prefix[]
   fleetRegistrations fleetRegistration[]
   communicationBatches CommunicationBatch[]
+  operator_Accounts operator_Account[]
   @@index([isActive])
   @@index([email])
   @@index([phone])
 
+}
+
+model operator_Account {
+  id            Int       @id @default(autoincrement())
+  operator_id   Int
+  accountNo     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  operator tbl_operator @relation(fields: [operator_id], references: [id])
+  fleetRegistrations fleetRegistration[]
+
+  @@unique([operator_id, accountNo])
+  @@index([operator_id])
 }
 
 model number_prefix {
@@ -947,8 +962,8 @@ model number_prefix {
     matricule     String
     operator_id   Int
     allowanceId   String
-    accountNo     String?
-    phoneNumber   String
+    operator_AccountId Int?
+    phoneNumber   String?
     effectiveDate DateTime  @map("effective_date")
     endDate       DateTime? @map("end_date")
     replacedById  Int?      @unique
@@ -956,6 +971,7 @@ model number_prefix {
     includedInBatch Boolean @default(false) @map("included_in_batch")
 
     operator        tbl_operator       @relation(fields: [operator_id], references: [id])
+    operatorAccount operator_Account?  @relation(fields: [operator_AccountId], references: [id], onDelete: Restrict)
     employee        tbl_employee       @relation(fields: [matricule], references: [matricule])
     allowance       tbl_allowance      @relation(fields: [allowanceId], references: [id])
     replacedBy      fleetRegistration? @relation("FleetTransfer", fields: [replacedById], references: [id], onDelete: SetNull)
@@ -969,6 +985,7 @@ model number_prefix {
     @@index([isActive])
     @@index([matricule])
     @@index([allowanceId])
+    @@index([operator_AccountId])
     @@index([createdAt])
     @@index([updatedAt])
     @@map("fleet_registration")
