@@ -11,9 +11,9 @@ INNER JOIN `tbl_fleetRegDetails` newer
    OR (d.effective_date = newer.effective_date AND d.id < newer.id)
  );
 
+-- Both indexes include effective_date. Drop them before the column goes away.
 DROP INDEX `tbl_fleetRegDetails_fleetRegistrationId_serviceId_effective__idx` ON `tbl_fleetRegDetails`;
-
-DROP INDEX `tbl_fleetRegDetails_phoneNumber_operator_AccountId_serviceId_key` ON `tbl_fleetRegDetails`;
+DROP INDEX `fleet_detail_operator_phone_service_date` ON `tbl_fleetRegDetails`;
 
 ALTER TABLE `tbl_fleetRegistration`
   CHANGE `effective_date` `appointment_date` DATETIME(3) NOT NULL;
