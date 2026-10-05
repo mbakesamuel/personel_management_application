@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { House } from "lucide-react"
+import { House, PanelLeft, PanelLeftClose } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Accordion,
@@ -35,6 +35,7 @@ export type AppView =
   | "operators"
   | "operator-accounts"
   | "registrations"
+  | "closed-registrations"
   | "allowance-changes"
   | "allowance-history"
   | "position-keywords"
@@ -68,6 +69,7 @@ type AppSidebarProps = {
   groups: SidebarGroup[]
   currentView: AppView
   collapsed: boolean
+  onToggleSidebar: () => void
   onNavigate: (view: AppView) => void
 }
 
@@ -82,6 +84,7 @@ export function AppSidebar({
   groups,
   currentView,
   collapsed,
+  onToggleSidebar,
   onNavigate,
 }: AppSidebarProps) {
   const visibleGroups = groups.filter((group) => group.items.length > 0)
@@ -90,7 +93,7 @@ export function AppSidebar({
     <aside
       className={cn(
         "flex h-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground transition-[width] duration-200",
-        collapsed ? "w-12" : "w-64"
+        collapsed ? "w-20" : "w-64"
       )}
     >
       <TooltipProvider delayDuration={400}>
@@ -100,12 +103,14 @@ export function AppSidebar({
               <CollapsedNav
                 groups={visibleGroups}
                 currentView={currentView}
+                onToggleSidebar={onToggleSidebar}
                 onNavigate={onNavigate}
               />
             ) : (
               <ExpandedNav
                 groups={visibleGroups}
                 currentView={currentView}
+                onToggleSidebar={onToggleSidebar}
                 onNavigate={onNavigate}
               />
             )}
@@ -116,26 +121,51 @@ export function AppSidebar({
   )
 }
 
+function SidebarToggle({
+  collapsed,
+  onToggleSidebar,
+}: {
+  collapsed: boolean
+  onToggleSidebar: () => void
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="shrink-0"
+      aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      onClick={onToggleSidebar}
+    >
+      {collapsed ? <PanelLeft /> : <PanelLeftClose />}
+    </Button>
+  )
+}
+
 function ExpandedNav({
   groups,
   currentView,
+  onToggleSidebar,
   onNavigate,
 }: {
   groups: SidebarGroup[]
   currentView: AppView
+  onToggleSidebar: () => void
   onNavigate: (view: AppView) => void
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        className={navButtonClass(currentView === "home")}
-        onClick={() => onNavigate("home")}
-      >
-        <House />
-        Home
-      </Button>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(navButtonClass(currentView === "home"), "min-w-0 flex-1")}
+          onClick={() => onNavigate("home")}
+        >
+          <House />
+          Home
+        </Button>
+        <SidebarToggle collapsed={false} onToggleSidebar={onToggleSidebar} />
+      </div>
 
       {groups.length > 0 ? (
         <Accordion
@@ -177,28 +207,33 @@ function ExpandedNav({
 function CollapsedNav({
   groups,
   currentView,
+  onToggleSidebar,
   onNavigate,
 }: {
   groups: SidebarGroup[]
   currentView: AppView
+  onToggleSidebar: () => void
   onNavigate: (view: AppView) => void
 }) {
   return (
-    <div className="flex flex-col items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={cn(currentView === "home" && "bg-accent text-accent-foreground")}
-            aria-label="Home"
-            onClick={() => onNavigate("home")}
-          >
-            <House />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">Home</TooltipContent>
-      </Tooltip>
+    <div className="flex flex-col items-start gap-1">
+      <div className="flex w-full items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(currentView === "home" && "bg-accent text-accent-foreground")}
+              aria-label="Home"
+              onClick={() => onNavigate("home")}
+            >
+              <House />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Home</TooltipContent>
+        </Tooltip>
+        <SidebarToggle collapsed onToggleSidebar={onToggleSidebar} />
+      </div>
 
       {groups.map((group) => {
         const Icon = group.icon

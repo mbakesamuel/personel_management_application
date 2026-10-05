@@ -1,0 +1,1 @@
+packages/server/prisma/migrations/**/*.sql text eol=lf

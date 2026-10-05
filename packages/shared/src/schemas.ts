@@ -547,11 +547,11 @@ export const FleetImportRegistrationSchema = z.object({
   row: z.number().int().positive(),
   id: z.number().int().positive(),
   matricule: z.string().trim().min(1).max(191),
-  operatorId: z.number().int().positive(),
+  operatorId: z.number().int().positive().nullable().optional(),
   allowanceId: z.string().trim().min(1).max(191),
   accountNo: z.string().trim().max(191).nullable().optional(),
   phoneNumber: z.string().trim().max(191).optional().default(''),
-  effectiveDate: DateOnlySchema,
+  appointmentDate: DateOnlySchema,
   endDate: DateOnlySchema.nullable().optional(),
   replacedById: z.number().int().positive().nullable().optional(),
   isActive: z.boolean().optional(),
@@ -566,7 +566,9 @@ export const FleetImportDetailSchema = z.object({
   fleetRegistrationId: z.number().int().positive(),
   serviceId: z.number().int().positive(),
   amount: z.number().finite().nonnegative(),
-  effectiveDate: DateOnlySchema,
+  operatorId: z.number().int().positive().nullable().optional(),
+  accountNo: z.string().trim().max(191).nullable().optional(),
+  phoneNumber: z.string().trim().max(191).optional().default(''),
 })
 
 export const FleetImportBatchSchema = z
@@ -642,11 +644,8 @@ export const OperatorAccountUpsertSchema = z.object({
 
 export const CommunicationRegistrationCreateSchema = z.object({
   matricule: z.string().trim().min(1).max(30),
-  operatorId: z.number().int().positive(),
   allowanceId: z.string().trim().min(1).max(30),
-  operatorAccountId: z.number().int().positive().nullable().optional(),
-  phoneNumber: z.string().trim().max(20),
-  effectiveDate: DateOnlySchema,
+  appointmentDate: DateOnlySchema,
 })
 
 export const CommunicationRegistrationRemoveSchema = z.object({
@@ -654,17 +653,44 @@ export const CommunicationRegistrationRemoveSchema = z.object({
 })
 
 export const CommunicationRegistrationTransferSchema = z.object({
+  detailIds: z.array(z.number().int().positive()).min(1).max(50),
   operatorId: z.number().int().positive(),
   operatorAccountId: z.number().int().positive().nullable().optional(),
   phoneNumber: z.string().trim().max(20),
-  effectiveDate: DateOnlySchema,
+})
+
+export const CommunicationDetailsUpdateSchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        id: z.number().int().positive(),
+        amount: z.number().finite().nonnegative(),
+      }),
+    )
+    .min(1)
+    .max(50),
+})
+
+export const CommunicationDetailsDeleteSchema = z.object({
+  detailIds: z.array(z.number().int().positive()).min(1).max(50),
 })
 
 export const CommunicationAmountCreateSchema = z.object({
   fleetRegistrationId: z.number().int().positive(),
   serviceId: z.number().int().positive(),
   amount: z.number().finite().nonnegative(),
-  effectiveDate: DateOnlySchema,
+  operatorId: z.number().int().positive(),
+  operatorAccountId: z.number().int().positive().nullable().optional(),
+  phoneNumber: z.string().trim().max(20),
+  adjustments: z
+    .array(
+      z.object({
+        detailId: z.number().int().positive(),
+        amount: z.number().finite().nonnegative(),
+      }),
+    )
+    .optional()
+    .default([]),
 })
 
 export const CommunicationBatchCreateSchema = z
@@ -672,54 +698,19 @@ export const CommunicationBatchCreateSchema = z
     operatorId: z.number().int().positive(),
     effectiveDate: DateOnlySchema,
     endDate: DateOnlySchema,
-    lines: z
-      .array(
-        z.object({
-          fleetRegistrationId: z.number().int().positive(),
-          action: z.enum(['MODIFICATION', 'REMOVAL', 'CREATION']),
-          amounts: z
-            .array(
-              z.object({
-                serviceId: z.number().int().positive(),
-                amount: z.number().finite().nonnegative(),
-              }),
-            )
-            .default([]),
-        }),
-      )
-      .min(1),
+    fleetRegistrationIds: z.array(z.number().int().positive()).min(1).max(100),
   })
   .superRefine((value, ctx) => {
     const seen = new Set<number>()
-    value.lines.forEach((line, index) => {
-      if (seen.has(line.fleetRegistrationId)) {
+    value.fleetRegistrationIds.forEach((id, index) => {
+      if (seen.has(id)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'A line can only be included once',
-          path: ['lines', index, 'fleetRegistrationId'],
+          path: ['fleetRegistrationIds', index],
         })
       }
-      seen.add(line.fleetRegistrationId)
-      if (line.action === 'MODIFICATION' && line.amounts.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Enter at least one amount',
-          path: ['lines', index, 'amounts'],
-        })
-      }
-      if (
-        (line.action === 'REMOVAL' || line.action === 'CREATION') &&
-        line.amounts.length > 0
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            line.action === 'REMOVAL'
-              ? 'A removal does not take amounts'
-              : 'An inclusion does not take amounts',
-          path: ['lines', index, 'amounts'],
-        })
-      }
+      seen.add(id)
     })
   })
 
@@ -864,6 +855,12 @@ export type CommunicationRegistrationRemoveInput = z.infer<
 >
 export type CommunicationRegistrationTransferInput = z.infer<
   typeof CommunicationRegistrationTransferSchema
+>
+export type CommunicationDetailsUpdateInput = z.infer<
+  typeof CommunicationDetailsUpdateSchema
+>
+export type CommunicationDetailsDeleteInput = z.infer<
+  typeof CommunicationDetailsDeleteSchema
 >
 export type CommunicationAmountCreateInput = z.infer<
   typeof CommunicationAmountCreateSchema

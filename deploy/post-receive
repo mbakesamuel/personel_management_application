@@ -31,6 +31,8 @@ while read -r _oldrev _newrev refname; do
   npm run build:shared
   npm run db:generate
   npm run build:server
+  echo "Applying database migrations"
+  (cd packages/server && node ../../node_modules/prisma/build/index.js migrate deploy)
 
   if "$PM2" describe personel-management-server >/dev/null 2>&1; then
     "$PM2" restart personel-management-server

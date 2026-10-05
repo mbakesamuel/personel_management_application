@@ -33,8 +33,16 @@ function shortTick(value: string) {
   return value.length > 14 ? `${value.slice(0, 13)}…` : value
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
+function Stat({
+  label,
+  value,
+  onClick,
+}: {
+  label: string
+  value: string
+  onClick?: () => void
+}) {
+  const card = (
     <Card className="min-w-0 gap-1 py-3">
       <CardHeader className="px-3 pb-0">
         <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -45,6 +53,16 @@ function Stat({ label, value }: { label: string; value: string }) {
         <p className="wrap-break-word text-xl font-semibold md:text-2xl">{value}</p>
       </CardContent>
     </Card>
+  )
+  if (!onClick) return card
+  return (
+    <button
+      type="button"
+      className="min-w-0 rounded-xl text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onClick}
+    >
+      {card}
+    </button>
   )
 }
 
@@ -91,6 +109,15 @@ export function CommunicationDashboard({
         <Stat
           label="Batches this month"
           value={String(data.batchesThisMonth)}
+        />
+        <Stat
+          label="Incomplete registrations"
+          value={String(data.incompleteRegistrations)}
+          onClick={
+            user.permissions.canCommunicationAllowance
+              ? () => onNavigate('registrations')
+              : undefined
+          }
         />
       </section>
 

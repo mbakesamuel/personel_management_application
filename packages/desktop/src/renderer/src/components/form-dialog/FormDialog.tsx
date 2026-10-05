@@ -101,8 +101,9 @@ export function FormDialogError({ children }: { children: ReactNode }) {
 type FormDialogActionsProps = {
   primaryLabel: string
   onPrimary: () => void
-  onCancel: () => void
+  onCancel?: () => void
   primaryDisabled?: boolean
+  primaryVariant?: 'default' | 'destructive'
   cancelDisabled?: boolean
   cancelLabel?: string
 }
@@ -112,6 +113,7 @@ export function FormDialogActions({
   onPrimary,
   onCancel,
   primaryDisabled,
+  primaryVariant = 'default',
   cancelDisabled,
   cancelLabel = 'Cancel',
 }: FormDialogActionsProps) {
@@ -119,19 +121,22 @@ export function FormDialogActions({
     <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
       <Button
         type="button"
+        variant={primaryVariant}
         disabled={primaryDisabled}
         onClick={onPrimary}
       >
         {primaryLabel}
       </Button>
-      <Button
-        type="button"
-        variant="outline"
-        disabled={cancelDisabled}
-        onClick={onCancel}
-      >
-        {cancelLabel}
-      </Button>
+      {onCancel ? (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={cancelDisabled}
+          onClick={onCancel}
+        >
+          {cancelLabel}
+        </Button>
+      ) : null}
     </div>
   )
 }

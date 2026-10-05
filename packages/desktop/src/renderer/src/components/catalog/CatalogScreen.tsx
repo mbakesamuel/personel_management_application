@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -42,6 +42,8 @@ type CatalogScreenProps = {
   toolbarExtra?: ReactNode
   selectionBar?: ReactNode
   table: ReactNode
+  /** Scroll area around the table, used to size pages to the visible height. */
+  tableViewportRef?: Ref<HTMLDivElement>
   pagination?: ReactNode
   className?: string
 }
@@ -64,6 +66,7 @@ export function CatalogScreen({
   toolbarExtra,
   selectionBar,
   table,
+  tableViewportRef,
   pagination,
   className,
 }: CatalogScreenProps) {
@@ -154,7 +157,9 @@ export function CatalogScreen({
           {selectionBar}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">{table}</div>
+        <div ref={tableViewportRef} className="min-h-0 flex-1 overflow-auto">
+          {table}
+        </div>
         {pagination ? (
           <div className="shrink-0 border-t px-4 py-2">{pagination}</div>
         ) : null}

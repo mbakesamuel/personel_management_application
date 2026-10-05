@@ -236,7 +236,7 @@ export function CommunicationLinesConsole({ onClose }: CommunicationLinesConsole
           </TableHeader>
           <TableBody>
             {visible.map((row) => (
-              <TableRow key={row.id}>
+              <TableRow key={`${row.id}-${row.operatorId}`}>
                 <TableCell>{row.matricule}</TableCell>
                 <TableCell>{row.employeeName}</TableCell>
                 <TableCell>{row.position ?? '—'}</TableCell>

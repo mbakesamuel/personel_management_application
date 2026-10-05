@@ -23,6 +23,7 @@
     "db:migrate": "node ../../node_modules/prisma/build/index.js migrate dev",
     "db:push": "node ../../node_modules/prisma/build/index.js db push",
     "db:backfill-current-unit": "tsx src/scripts/backfill-current-unit.ts",
+    "db:baseline-fleet-snapshots": "tsx src/scripts/baseline-fleet-snapshots.ts",
     "seed:financial-years": "tsx src/scripts/seed-financial-years.ts",
     "seed:roles": "tsx src/scripts/seed-roles.ts",
     "seed:roles-table": "tsx src/scripts/seed-roles-table.ts",

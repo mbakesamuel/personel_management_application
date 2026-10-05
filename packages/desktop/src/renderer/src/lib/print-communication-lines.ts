@@ -10,7 +10,7 @@ import {
 } from '../components/ReportHeader'
 
 const ROWS_PER_PAGE = 22
-const TITLE = 'COMMUNICATION LINES'
+const TITLE = 'List of Personnel on Communication Lines'
 
 function escapeHtml(value: string): string {
   return value

@@ -98,26 +98,28 @@ export async function buildDashboard(user: User): Promise<DashboardResponse> {
   return { scopeLabel, appyear, appraisals, allowances, workforce }
 }
 
-function todayUtc(): Date {
-  const now = new Date()
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-  )
-}
-
 async function buildCommunicationDashboard(): Promise<CommunicationDashboard> {
-  const today = todayUtc()
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
-  const [openLines, closedLines, openRows, operators, details, batchesThisMonth] =
-    await Promise.all([
+  const [
+    openLines,
+    closedLines,
+    incompleteRegistrations,
+    openRows,
+    operators,
+    details,
+    batchesThisMonth,
+  ] = await Promise.all([
       prisma.fleetRegistration.count({ where: { endDate: null } }),
       prisma.fleetRegistration.count({ where: { endDate: { not: null } } }),
+      prisma.fleetRegistration.count({
+        where: { endDate: null, fleetRegDetails: { none: {} } },
+      }),
       prisma.fleetRegistration.findMany({
         where: { endDate: null },
-        select: { matricule: true, operator_id: true },
+        select: { matricule: true },
       }),
       prisma.tbl_operator.findMany({
         where: { deletedAt: null },
@@ -126,17 +128,18 @@ async function buildCommunicationDashboard(): Promise<CommunicationDashboard> {
       }),
       prisma.fleetRegDetails.findMany({
         where: {
-          effectiveDate: { lte: today },
           fleetRegistration: { endDate: null },
         },
         select: {
           id: true,
           fleetRegistrationId: true,
+          operator_id: true,
+          phoneNumber: true,
           serviceId: true,
           amount: true,
           service: { select: { name: true } },
         },
-        orderBy: [{ effectiveDate: 'desc' }, { id: 'desc' }],
+        orderBy: [{ id: 'desc' }],
       }),
       prisma.communicationBatch.count({
         where: { createdAt: { gte: monthStart, lt: monthEnd } },
@@ -145,13 +148,16 @@ async function buildCommunicationDashboard(): Promise<CommunicationDashboard> {
 
   const employees = new Set(openRows.map((row) => row.matricule))
   const counts = new Map<number, number>()
-  for (const row of openRows) {
-    counts.set(row.operator_id, (counts.get(row.operator_id) ?? 0) + 1)
-  }
+  const counted = new Set<string>()
 
   const best = new Map<string, { amount: number; name: string }>()
   for (const row of details) {
-    const key = `${row.fleetRegistrationId}:${row.serviceId}`
+    const lineKey = `${row.fleetRegistrationId}:${row.operator_id}`
+    if (!counted.has(lineKey)) {
+      counted.add(lineKey)
+      counts.set(row.operator_id, (counts.get(row.operator_id) ?? 0) + 1)
+    }
+    const key = `${row.fleetRegistrationId}:${row.operator_id}:${row.phoneNumber ?? ''}:${row.serviceId}`
     if (best.has(key)) continue
     best.set(key, { amount: row.amount, name: row.service.name })
   }
@@ -181,6 +187,7 @@ async function buildCommunicationDashboard(): Promise<CommunicationDashboard> {
     airtimeTotal,
     dataTotal,
     batchesThisMonth,
+    incompleteRegistrations,
   }
 }
 

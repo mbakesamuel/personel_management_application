@@ -47,7 +47,7 @@ export function AllowanceHistoryConsole({ onClose }: AllowanceHistoryConsoleProp
     if (!selected) return []
     return registrations
       .filter((row) => row.matricule === selected.matricule)
-      .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate) || b.id - a.id)
+      .sort((a, b) => b.appointmentDate.localeCompare(a.appointmentDate) || b.id - a.id)
   }, [registrations, selected])
 
   const byId = useMemo(
@@ -156,19 +156,14 @@ export function AllowanceHistoryConsole({ onClose }: AllowanceHistoryConsoleProp
           const replacement = line.replacedById == null ? null : byId.get(line.replacedById)
           const history = amounts
             .filter((item) => item.fleetRegistrationId === line.id)
-            .sort(
-              (a, b) =>
-                b.effectiveDate.localeCompare(a.effectiveDate) || b.id - a.id,
-            )
+            .sort((a, b) => b.id - a.id)
           return (
             <section key={line.id} className="rounded-md border bg-card p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <h2 className="text-sm font-semibold">{line.operatorName}</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {line.phoneNumber}
-                    {line.accountNo ? ` · ${line.accountNo}` : ''}
-                  </p>
+                  <h2 className="text-sm font-semibold">
+                    {line.operators.map((operator) => operator.name).join(', ') || 'No operator yet'}
+                  </h2>
                 </div>
                 <span
                   className={
@@ -181,9 +176,11 @@ export function AllowanceHistoryConsole({ onClose }: AllowanceHistoryConsoleProp
                 </span>
               </div>
               <p className="mt-2 text-sm">
-                Joined {line.effectiveDate}
+                Appointment {line.appointmentDate}
                 {line.endDate ? ` · Ended ${line.endDate}` : ''}
-                {replacement ? ` · Transferred to ${replacement.operatorName}` : ''}
+                {replacement
+                  ? ` · Transferred to ${replacement.operators.map((operator) => operator.name).join(', ') || 'a new appointment'}`
+                  : ''}
               </p>
               {history.length === 0 ? (
                 <p className="mt-3 text-sm text-muted-foreground">No amounts on this line.</p>
@@ -191,18 +188,22 @@ export function AllowanceHistoryConsole({ onClose }: AllowanceHistoryConsoleProp
                 <Table className="mt-3">
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Operator</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Account</TableHead>
                       <TableHead>Service</TableHead>
                       <TableHead>Amount</TableHead>
-                      <TableHead>Effective</TableHead>
                       <TableHead>Current</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {history.map((item) => (
                       <TableRow key={item.id}>
+                        <TableCell>{item.operatorName}</TableCell>
+                        <TableCell>{item.phoneNumber || '—'}</TableCell>
+                        <TableCell>{item.accountNo ?? '—'}</TableCell>
                         <TableCell>{item.serviceName}</TableCell>
                         <TableCell>{formatAmount(item.amount)}</TableCell>
-                        <TableCell>{item.effectiveDate}</TableCell>
                         <TableCell>{item.current ? 'Current' : '—'}</TableCell>
                       </TableRow>
                     ))}

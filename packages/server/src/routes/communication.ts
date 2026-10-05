@@ -3,6 +3,8 @@ import { zValidator } from '@hono/zod-validator'
 import {
   CommunicationAmountCreateSchema,
   CommunicationBatchCreateSchema,
+  CommunicationDetailsDeleteSchema,
+  CommunicationDetailsUpdateSchema,
   CommunicationOperatorUpsertSchema,
   OperatorAccountUpsertSchema,
   CommunicationRegistrationCreateSchema,
@@ -18,7 +20,10 @@ import {
 } from '../services/authz.service.js'
 import { searchAllowanceEmployees } from '../services/allowances.service.js'
 import { communicationService } from '../services/communication.service.js'
-import { importFleetBatch } from '../services/fleet-import.service.js'
+import {
+  baselineUncommunicatedFleet,
+  importFleetBatch,
+} from '../services/fleet-import.service.js'
 import {
   PersonnelConflictError,
   PersonnelNotFoundError,
@@ -62,11 +67,16 @@ const BatchListQuery = z.object({
   operatorId: z.coerce.number().int().positive().optional(),
 })
 
+const MemoDraftQuery = z.object({
+  operatorId: z.coerce.number().int().positive(),
+})
+
 const communication = new Hono<{ Variables: AppVariables }>()
   .use('*', async (c, next) => {
     if (
       c.req.method === 'POST' &&
-      c.req.path.endsWith('/fleet/import')
+      (c.req.path.endsWith('/fleet/import') ||
+        c.req.path.endsWith('/fleet/baseline'))
     ) {
       await next()
       return
@@ -100,6 +110,21 @@ const communication = new Hono<{ Variables: AppVariables }>()
       return c.json(await importFleetBatch(c.req.valid('json')))
     },
   )
+  .post('/fleet/baseline', async (c) => {
+    try {
+      await requirePermission(
+        c.get('currentUser'),
+        'canImportFleet',
+        'You do not have permission to import fleet registrations',
+      )
+    } catch (err) {
+      if (err instanceof ForbiddenError) {
+        return c.json({ error: err.message }, 403)
+      }
+      throw err
+    }
+    return c.json(await baselineUncommunicatedFleet())
+  })
   .get('/operators', async (c) =>
     handle(c, () => communicationService.listOperators()),
   )
@@ -190,20 +215,26 @@ const communication = new Hono<{ Variables: AppVariables }>()
         ),
       ),
   )
-  .post(
-    '/registrations/:id/transfer',
-    zValidator('param', IdParam),
-    zValidator('json', CommunicationRegistrationTransferSchema),
-    async (c) =>
-      handle(c, () =>
-        communicationService.transferRegistration(
-          c.req.valid('param').id,
-          c.req.valid('json'),
-        ),
-      ),
-  )
   .get('/lines', async (c) => handle(c, () => communicationService.listLines()))
   .get('/amounts', async (c) => handle(c, () => communicationService.listAmounts()))
+  .post(
+    '/amounts/transfer',
+    zValidator('json', CommunicationRegistrationTransferSchema),
+    async (c) =>
+      handle(c, () => communicationService.transferDetails(c.req.valid('json'))),
+  )
+  .post(
+    '/amounts/update',
+    zValidator('json', CommunicationDetailsUpdateSchema),
+    async (c) =>
+      handle(c, () => communicationService.updateDetails(c.req.valid('json'))),
+  )
+  .post(
+    '/amounts/delete',
+    zValidator('json', CommunicationDetailsDeleteSchema),
+    async (c) =>
+      handle(c, () => communicationService.deleteDetails(c.req.valid('json'))),
+  )
   .post(
     '/amounts',
     zValidator('json', CommunicationAmountCreateSchema),
@@ -214,10 +245,21 @@ const communication = new Hono<{ Variables: AppVariables }>()
         201,
       ),
   )
+  .get('/memo-draft', zValidator('query', MemoDraftQuery), async (c) =>
+    handle(c, () =>
+      communicationService.listMemoDraft(c.req.valid('query').operatorId),
+    ),
+  )
   .get('/batches', zValidator('query', BatchListQuery), async (c) =>
     handle(c, () =>
       communicationService.listBatches(c.req.valid('query').operatorId),
     ),
+  )
+  .post(
+    '/batches/preview',
+    zValidator('json', CommunicationBatchCreateSchema),
+    async (c) =>
+      handle(c, () => communicationService.previewBatch(c.req.valid('json'))),
   )
   .get('/batches/:id', zValidator('param', IdParam), async (c) =>
     handle(c, () => communicationService.getBatch(c.req.valid('param').id)),

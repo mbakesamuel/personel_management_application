@@ -62,6 +62,34 @@ export function FleetImportConsole({ onClose }: FleetImportConsoleProps) {
     }
   }
 
+  async function handleBaseline() {
+    setLoading(true)
+    setProgress(15)
+    setStatus('Recording the current fleet as already communicated…')
+    try {
+      const client = await createApiClient()
+      const res = await client.communication.fleet.baseline.$post()
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string
+        } | null
+        throw new Error(body?.error ?? `Baseline failed (${res.status})`)
+      }
+      const result = await res.json()
+      setProgress(100)
+      setStatus(
+        result.linesInserted === 0
+          ? 'Every registration and operator pair already has a snapshot. Allowance changes is unchanged.'
+          : `Recorded ${result.linesInserted} line(s) on ${result.pairsBaselined} registration and operator pair(s) as already communicated.`,
+      )
+    } catch (err) {
+      setProgress(0)
+      setStatus(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleImport() {
     if (!parsed) return
     if (parsed.registrations.length + parsed.details.length === 0) return
@@ -126,9 +154,14 @@ export function FleetImportConsole({ onClose }: FleetImportConsoleProps) {
         <CardContent className="grid gap-3 px-3">
           <p className="text-sm text-muted-foreground">
             Import a workbook with sheets named fleet_registration and
-            fleet_reg_details. Column names match those tables. Existing ids
-            are left unchanged. Source ids are kept so amounts and transfers
-            stay linked.
+            fleet_reg_details. Operator, account, and phone belong on the
+            detail sheet. If a detail row omits them, the matching registration
+            row is used. Existing ids are left unchanged. Source ids are kept
+            so amounts and transfers stay linked. Imported amounts are recorded
+            as already communicated, so they do not appear on Allowance changes.
+            Use the baseline action once for fleet data that is already in the
+            database. Later edits still appear. Lines that already have a memo
+            are left alone.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
@@ -217,6 +250,12 @@ export function FleetImportConsole({ onClose }: FleetImportConsoleProps) {
           label="Import"
           onClick={() => void handleImport()}
           disabled={!canImport}
+        />
+        <ActionButton
+          icon={<FileSpreadsheet size={16} />}
+          label="Mark current fleet as already sent"
+          onClick={() => void handleBaseline()}
+          disabled={loading}
         />
         <ActionButton
           icon={<X size={16} />}

@@ -1,30 +1,46 @@
-Production deploy
+steps to setup
+Create a bare repo on the server:
 
-Remote (already added on this machine):
-  production  server_admin@172.16.2.9:~/repos/personel_management_app.git
+bash
+mkdir -p ~/repos/personel_management_app.git
+cd ~/repos/personel_management_app.git
+git init --bare
+Add remote on your dev machine:
 
-Push only committed work on main:
-  git push production main
+bash
+git remote add production server_admin@172.16.2.9:~/repos/personel_management_app.git
+Set up post‑receive hook in the bare repo:
 
-What that does
-  The bare repo is ~/repos/personel_management_app.git and its HEAD is main.
-  The post-receive hook checks out main into
-  /home/server_admin/personel_management_application, installs from the
-  repo root with --ignore-scripts (so Electron is not downloaded), builds
-  the shared package, generates the Prisma client, compiles packages/server,
-  and restarts PM2 app personel-management-server.
+bash
+cd ~/repos/personel_management_app.git/hooks
+nano post-receive
+Add:
 
-Server runtime
-  The hook puts nvm Node 24.21.0 on PATH. Prisma 7 does not support
-  Node 23. PM2 itself stays the Node 23 install, because that is the
-  daemon already running the other apps. This API is started from
-  ~/pm2/ecosystem.config.cjs, which pins the interpreter to Node 24. Boot still runs `nvm use v23.11.1` for the
-  other apps; this process keeps its own interpreter.
-  packages/server/.env stays on the server (it is gitignored).
-  DB_TARGET=prod, and PORT=4000 so it matches the desktop
-  SERVER_URL_PROD (http://172.16.2.9:4000).
+bash
+#!/bin/bash
+GIT_WORK_TREE=/home/server_admin/personel_management_application git checkout -f
+cd /home/server_admin/personel_management_application/packages/server
+npm install --production
+pm2 restart perf-appraisal-server
+Then make it executable:
 
-The hook source in this repo is deploy/post-receive. After editing it,
-copy it to the bare repo and keep it executable:
-  scp deploy/post-receive server_admin@172.16.2.9:~/repos/personel_management_app.git/hooks/post-receive
-  ssh server_admin@172.16.2.9 chmod +x ~/repos/personel_management_app.git/hooks/post-receive
+bash
+chmod +x post-receive
+Push code to server:
+
+bash
+git push production main
+→ This will auto‑deploy into /home/server_admin/personel_management_application and restart the server.
+
+===================
+he production deploy is in place, and the API is running on the Linux server.
+
+http://172.16.2.9:4000/health returns {"status":"ok"}. PM2 shows personel-management-server online under Node 24.21.0. The budget apps were left running.
+
+What was wrong, and what changed:
+
+The bare repo now tracks main. The previous hook checked out an empty master, so the app directory stayed empty.
+The hook installs from the repo root, builds the shared package, generates the Prisma client, compiles the server, and restarts PM2. It does not download Electron.
+Node 24 runs this API. Prisma 7 refuses Node 23. The other apps still boot with Node 23; this process keeps its own interpreter.
+packages/server/.env on the server uses the production database and port 4000, which matches the desktop app’s production URL. That file is gitignored, so later checkouts leave it in place.
+git push production main is the deploy command. It sends only committed work. The server is running the commit already on main (446408c). The employee-image and other local edits are still uncommitted, so they are not on the server yet.

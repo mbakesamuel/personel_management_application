@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export type SortDir = 'asc' | 'desc'
 
@@ -72,9 +72,17 @@ export function useCatalogTable<T, Tab extends string = string>(
     [sorted, currentPage, pageSize],
   )
 
+  const pageSizeRef = useRef(pageSize)
   useEffect(() => {
+    if (pageSizeRef.current !== pageSize) {
+      const firstIndex = (page - 1) * pageSizeRef.current
+      pageSizeRef.current = pageSize
+      const nextPage = Math.min(Math.floor(firstIndex / pageSize) + 1, totalPages)
+      if (nextPage !== page) setPage(nextPage)
+      return
+    }
     if (page > totalPages) setPage(totalPages)
-  }, [page, totalPages])
+  }, [page, pageSize, totalPages])
 
   const pageStart =
     sorted.length === 0

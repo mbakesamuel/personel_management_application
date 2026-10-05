@@ -1,4 +1,5 @@
 export { useCatalogTable } from './useCatalogTable'
+export { useFitPageSize } from './useFitPageSize'
 export type { SortDir, UseCatalogTableOptions } from './useCatalogTable'
 export {
   CatalogScreen,

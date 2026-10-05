@@ -6,7 +6,7 @@ import { X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { createApiClient } from '../api/client'
 import { LetterPdfOverlay } from './LetterPdfOverlay'
-import { batchReportDocument } from './OrangeOperatorMemo'
+import { batchReportDocument } from './OperatorMemo'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -19,6 +19,10 @@ import {
 
 type AllowanceChangeLettersConsoleProps = {
   onClose: () => void
+}
+
+function employeeNamesOf(row: { operatorName: string; employeeNames?: string[] }) {
+  return row.employeeNames ?? []
 }
 
 async function readError(res: Response, fallback: string) {
@@ -75,7 +79,7 @@ export function AllowanceChangeLettersConsole({
       <div className="flex min-h-0 flex-1 flex-col overflow-auto p-3 md:p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold">Allowance Change Letters</h1>
+            <h1 className="text-lg font-semibold">Memo Draft Parameters</h1>
             <p className="text-sm text-muted-foreground">
               Saved modification, removal, and inclusion letters.
             </p>
@@ -98,6 +102,7 @@ export function AllowanceChangeLettersConsole({
               <TableRow>
                 <TableHead>Date</TableHead>
                 <TableHead>Operator</TableHead>
+                <TableHead>Employees</TableHead>
                 <TableHead>Modifications</TableHead>
                 <TableHead>Removals</TableHead>
                 <TableHead>Inclusions</TableHead>
@@ -105,10 +110,21 @@ export function AllowanceChangeLettersConsole({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {batches.map((row) => (
+              {batches.map((row) => {
+                const employeeNames = employeeNamesOf(row)
+                return (
                 <TableRow key={row.id}>
                   <TableCell>{row.createdAt}</TableCell>
                   <TableCell>{row.operatorName}</TableCell>
+                  <TableCell>
+                    {employeeNames.length === 0
+                      ? '—'
+                      : employeeNames.map((name) => (
+                          <span key={name} className="block">
+                            {name}
+                          </span>
+                        ))}
+                  </TableCell>
                   <TableCell>{row.modificationCount}</TableCell>
                   <TableCell>{row.removalCount}</TableCell>
                   <TableCell>{row.inclusionCount}</TableCell>
@@ -123,7 +139,8 @@ export function AllowanceChangeLettersConsole({
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
+                )
+              })}
             </TableBody>
           </Table>
         )}

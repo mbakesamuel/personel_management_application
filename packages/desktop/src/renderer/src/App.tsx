@@ -26,7 +26,10 @@ import { AllowancesConsole } from "./components/AllowancesConsole";
 import { OperatorsConsole } from "@/components/OperatorsConsole";
 import { OperatorAccountsConsole } from "@/components/OperatorAccountsConsole";
 import { RegistrationsConsole } from "@/components/RegistrationsConsole";
-import { AllowanceChangesConsole } from "@/components/AllowanceChangesConsole";
+import {
+  AllowanceChangesConsole,
+  type CorrespondenceFocus,
+} from "@/components/AllowanceChangesConsole";
 import { AllowanceHistoryConsole } from "@/components/AllowanceHistoryConsole";
 import { AllowanceChangeLettersConsole } from "@/components/AllowanceChangeLettersConsole";
 import { CommunicationLinesConsole } from "@/components/CommunicationLinesConsole";
@@ -45,10 +48,10 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { UsersConsole } from "./components/UsersConsole";
 import welcomeSrc from "./assets/welcome.jpg";
 import { LOGO_SRC } from "./lib/logo";
+import { REPORT_COMPANY_NAME } from "./components/ReportHeader";
 
 const SIDEBAR_COLLAPSED_KEY = "pma-sidebar-collapsed";
 const APP_TITLE = "Personel Management Application";
-const companyName = "CAMEROON DEVELOPMENT CORPORATION";
 function readSidebarCollapsed(): boolean {
   try {
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
@@ -63,9 +66,10 @@ export default function App() {
     null,
   );
   const [view, setView] = useState<AppView>("home");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    readSidebarCollapsed,
-  );
+  const [correspondenceFocus, setCorrespondenceFocus] =
+    useState<CorrespondenceFocus | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] =
+    useState(readSidebarCollapsed);
   const [authScreen, setAuthScreen] = useState<
     "welcome" | "login" | "change-password"
   >("welcome");
@@ -76,6 +80,7 @@ export default function App() {
       (view === "operators" ||
         view === "operator-accounts" ||
         view === "registrations" ||
+        view === "closed-registrations" ||
         view === "allowance-changes" ||
         view === "allowance-history" ||
         view === "allowance-change-letters" ||
@@ -90,10 +95,11 @@ export default function App() {
     }
   }, [view, user]);
 
-  function applyFinancialYear(
-    next: FinancialYear | null,
-    nextUser?: User,
-  ) {
+  useEffect(() => {
+    if (view !== "allowance-changes") setCorrespondenceFocus(null);
+  }, [view]);
+
+  function applyFinancialYear(next: FinancialYear | null, nextUser?: User) {
     setFinancialYear(next);
     if (nextUser) {
       setUser(nextUser);
@@ -135,7 +141,7 @@ export default function App() {
         ? [
             {
               view: "import-fleet" as const,
-              label: "Import fleet (From Excel)",
+              label: "Import fleet Data",
             },
           ]
         : []),
@@ -159,11 +165,11 @@ export default function App() {
         ? [
             {
               view: "operators" as const,
-              label: "Operators",
+              label: "Operator Management",
             },
             {
               view: "operator-accounts" as const,
-              label: "Operator accounts",
+              label: "Operator Accounts",
             },
           ]
         : []),
@@ -171,7 +177,7 @@ export default function App() {
         ? [
             {
               view: "letter-copies" as const,
-              label: "Letter copies (CC)",
+              label: "Memo Copies (CC)",
             },
           ]
         : []),
@@ -179,7 +185,7 @@ export default function App() {
         ? [
             {
               view: "decision-matric" as const,
-              label: "Signature Matrix (Decision Matrix)",
+              label: "Signature Matrix",
             },
           ]
         : []),
@@ -222,7 +228,7 @@ export default function App() {
         ? [
             {
               view: "personnel" as const,
-              label: "Personnel",
+              label: "Personnel Management",
             },
           ]
         : []),
@@ -235,7 +241,7 @@ export default function App() {
               ? [
                   {
                     view: "allowances" as const,
-                    label: "Allowances",
+                    label: "Allowances Management",
                   },
                 ]
               : []),
@@ -261,15 +267,19 @@ export default function App() {
         ? [
             {
               view: "registrations" as const,
-              label: "Fleet Registration",
+              label: "Fleet Management",
+            },
+            {
+              view: "closed-registrations" as const,
+              label: "Closed registrations",
             },
             {
               view: "allowance-changes" as const,
-              label: "Inclusion/Modification/Removal",
+              label: "Draft Correspondences",
             },
             {
               view: "allowance-history" as const,
-              label: "Allowance history",
+              label: "Individual history",
             },
           ]
         : []),
@@ -300,7 +310,7 @@ export default function App() {
         ? [
             {
               view: "allocation-letters" as const,
-              label: "Allowance Allocation Letters",
+              label: "Allocation Letters",
             },
           ]
         : []),
@@ -308,7 +318,7 @@ export default function App() {
         ? [
             {
               view: "allowance-change-letters" as const,
-              label: "Allowance Change Letters",
+              label: "Print ",
             },
             {
               view: "communication-lines" as const,
@@ -361,17 +371,13 @@ export default function App() {
 
         {authScreen === "welcome" ? (
           <>
-          <div className="flex flex-col items-center gap-3">
-            <img
-              src={LOGO_SRC}
-              alt=""
-              className="h-20 w-20 object-contain"
-            />
-            <p className="text-center text-2xl font-bold text-yellow-400">
-              {companyName}
-            </p>
-          </div>
-         
+            <div className="flex flex-col items-center gap-3">
+              <img src={LOGO_SRC} alt="" className="h-20 w-20 object-contain" />
+              <p className="text-center text-2xl font-bold text-yellow-400">
+                {REPORT_COMPANY_NAME}
+              </p>
+            </div>
+
             <img
               src={welcomeSrc}
               alt=""
@@ -456,8 +462,6 @@ export default function App() {
       <TopNav
         user={user}
         financialYear={financialYear}
-        collapsed={sidebarCollapsed}
-        onToggleSidebar={toggleSidebar}
         onLogout={() => {
           setCurrentUserId(null);
           setUser(null);
@@ -472,6 +476,7 @@ export default function App() {
           groups={navGroups}
           currentView={view}
           collapsed={sidebarCollapsed}
+          onToggleSidebar={toggleSidebar}
           onNavigate={setView}
         />
 
@@ -523,10 +528,25 @@ export default function App() {
             <OperatorAccountsConsole onClose={() => setView("home")} />
           ) : view === "registrations" &&
             user.permissions.canCommunicationAllowance ? (
-            <RegistrationsConsole onClose={() => setView("home")} />
+            <RegistrationsConsole
+              onClose={() => setView("home")}
+              onAppointmentClosed={(focus) => {
+                setCorrespondenceFocus(focus);
+                setView("allowance-changes");
+              }}
+            />
+          ) : view === "closed-registrations" &&
+            user.permissions.canCommunicationAllowance ? (
+            <RegistrationsConsole
+              variant="closed"
+              onClose={() => setView("home")}
+            />
           ) : view === "allowance-changes" &&
             user.permissions.canCommunicationAllowance ? (
-            <AllowanceChangesConsole onClose={() => setView("home")} />
+            <AllowanceChangesConsole
+              onClose={() => setView("home")}
+              focus={correspondenceFocus}
+            />
           ) : view === "allowance-history" &&
             user.permissions.canCommunicationAllowance ? (
             <AllowanceHistoryConsole onClose={() => setView("home")} />

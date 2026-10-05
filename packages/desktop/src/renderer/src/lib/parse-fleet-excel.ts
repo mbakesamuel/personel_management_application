@@ -31,8 +31,10 @@ const REGISTRATION_ALIASES: Record<string, keyof FleetImportRegistration> = {
   phonenumber: 'phoneNumber',
   phone_number: 'phoneNumber',
   phone: 'phoneNumber',
-  effectivedate: 'effectiveDate',
-  effective_date: 'effectiveDate',
+  appointmentdate: 'appointmentDate',
+  appointment_date: 'appointmentDate',
+  effectivedate: 'appointmentDate',
+  effective_date: 'appointmentDate',
   enddate: 'endDate',
   end_date: 'endDate',
   replacedbyid: 'replacedById',
@@ -54,8 +56,13 @@ const DETAIL_ALIASES: Record<string, keyof FleetImportDetail> = {
   serviceid: 'serviceId',
   service_id: 'serviceId',
   amount: 'amount',
-  effectivedate: 'effectiveDate',
-  effective_date: 'effectiveDate',
+  operator_id: 'operatorId',
+  operatorid: 'operatorId',
+  accountno: 'accountNo',
+  account_no: 'accountNo',
+  phonenumber: 'phoneNumber',
+  phone_number: 'phoneNumber',
+  phone: 'phoneNumber',
 }
 
 function normalizeHeader(value: string): string {
@@ -229,7 +236,7 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
     const matricule = parseStringCell(mapped.matricule, 191)
     const allowanceId = parseStringCell(mapped.allowanceId, 191)
     const phoneNumber = parseStringCell(mapped.phoneNumber, 191)
-    const effectiveDate = parseDateCell(mapped.effectiveDate)
+    const appointmentDate = parseDateCell(mapped.appointmentDate)
 
     if (id === 'invalid' || id == null || id < 1) {
       errors.push({
@@ -247,11 +254,11 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
       })
       return
     }
-    if (operatorId === 'invalid' || operatorId == null || operatorId < 1) {
+    if (operatorId === 'invalid' || (operatorId != null && operatorId < 1)) {
       errors.push({
         sheet: 'fleet_registration',
         row: excelRow,
-        message: 'Missing or invalid operator_id',
+        message: 'Invalid operator_id',
       })
       return
     }
@@ -263,11 +270,11 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
       })
       return
     }
-    if (effectiveDate === 'invalid' || !effectiveDate) {
+    if (appointmentDate === 'invalid' || !appointmentDate) {
       errors.push({
         sheet: 'fleet_registration',
         row: excelRow,
-        message: 'Missing or invalid effectiveDate',
+        message: 'Missing or invalid appointmentDate',
       })
       return
     }
@@ -276,11 +283,11 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
       row: excelRow,
       id,
       matricule,
-      operatorId,
       allowanceId,
       phoneNumber: phoneNumber ?? '',
-      effectiveDate,
+      appointmentDate,
     }
+    if (operatorId != null) row.operatorId = operatorId
 
     const accountNo = parseStringCell(mapped.accountNo, 191)
     row.accountNo = accountNo
@@ -352,8 +359,10 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
     const fleetRegistrationId = parseIntCell(mapped.fleetRegistrationId)
     const serviceId = parseIntCell(mapped.serviceId)
     const amount = parseAmountCell(mapped.amount)
-    const effectiveDate = parseDateCell(mapped.effectiveDate)
     const id = parseIntCell(mapped.id)
+    const operatorId = parseIntCell(mapped.operatorId)
+    const phoneNumber = parseStringCell(mapped.phoneNumber, 191)
+    const accountNo = parseStringCell(mapped.accountNo, 191)
 
     if (id === 'invalid' || (id != null && id < 1)) {
       errors.push({
@@ -391,11 +400,11 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
       })
       return
     }
-    if (effectiveDate === 'invalid' || !effectiveDate) {
+    if (operatorId === 'invalid' || (operatorId != null && operatorId < 1)) {
       errors.push({
         sheet: 'fleet_reg_details',
         row: excelRow,
-        message: 'Missing or invalid effectiveDate',
+        message: 'Invalid operator_id',
       })
       return
     }
@@ -405,8 +414,10 @@ export async function parseFleetExcel(file: File): Promise<ParsedFleetExcel> {
       fleetRegistrationId,
       serviceId,
       amount,
-      effectiveDate,
+      phoneNumber: phoneNumber ?? '',
     }
+    if (operatorId != null) row.operatorId = operatorId
+    if (accountNo) row.accountNo = accountNo
     if (id != null) row.id = id
     details.push(row)
   })

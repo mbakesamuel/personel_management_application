@@ -293,6 +293,7 @@ export type CommunicationDashboard = {
   airtimeTotal: number
   dataTotal: number
   batchesThisMonth: number
+  incompleteRegistrations: number
 }
 
 export type AllowanceAmountBar = {
@@ -512,17 +513,20 @@ export type CommunicationAllowanceOption = {
   allowanceName: string
 }
 
-export type CommunicationRegistration = {
+export type CommunicationRegistrationOperator = {
+  id: number
+  name: string
+}
+
+export interface CommunicationRegistration {
   id: number
   matricule: string
   employeeName: string
-  operatorId: number
-  operatorName: string
+  operators: CommunicationRegistrationOperator[]
   allowanceId: string
   allowanceName: string
-  accountNo: string | null
-  phoneNumber: string
-  effectiveDate: string
+  allowanceAmt: number | null
+  appointmentDate: string
   endDate: string | null
   isActive: boolean
   replacedById: number | null
@@ -549,17 +553,30 @@ export type CommunicationAmount = {
   fleetRegistrationId: number
   matricule: string
   employeeName: string
+  operatorId: number
   operatorName: string
   accountNo: string | null
   phoneNumber: string
   serviceId: number
   serviceName: string
   amount: number
-  effectiveDate: string
   current: boolean
 }
 
 export type CommunicationBatchAction = 'MODIFICATION' | 'REMOVAL' | 'CREATION'
+
+export type CommunicationMemoDraftRow = {
+  fleetRegistrationId: number
+  employeeName: string
+  matricule: string
+  phoneNumber: string
+  accountNo: string | null
+  action: CommunicationBatchAction
+  airtime: number
+  previousAirtime: number | null
+  data: number
+  previousData: number | null
+}
 
 export type CommunicationBatchSummary = {
   id: number
@@ -571,11 +588,13 @@ export type CommunicationBatchSummary = {
   modificationCount: number
   removalCount: number
   inclusionCount: number
+  employeeNames: string[]
 }
 
 export type CommunicationBatchModification = {
   employeeName: string
   matricule: string
+  designation: string | null
   phoneNumber: string
   accountNo: string | null
   serviceName: string
@@ -586,6 +605,7 @@ export type CommunicationBatchModification = {
 export type CommunicationBatchRemoval = {
   employeeName: string
   matricule: string
+  designation: string | null
   phoneNumber: string
   accountNo: string | null
   endDate: string
@@ -593,7 +613,9 @@ export type CommunicationBatchRemoval = {
 
 export type CommunicationBatchAdjustmentRow = {
   employeeName: string
+  designation: string | null
   phoneNumber: string
+  accountNo: string | null
   airtime: number
   data: number
   total: number
@@ -604,9 +626,13 @@ export type CommunicationBatchReport = {
   operatorId: number
   operatorName: string
   operatorEmail: string | null
+  operatorPhone: string | null
+  operatorAddress: string | null
   effectiveDate: string
   endDate: string
   createdAt: string
+  signatoryName: string | null
+  signatoryTitle: string | null
   modifications: CommunicationBatchModification[]
   removals: CommunicationBatchRemoval[]
   adjustments: CommunicationBatchAdjustmentRow[]
