@@ -11,9 +11,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 type HomeDashboardProps = {
   user: User
   onNavigate: (view: AppView) => void
+  onOpenMemo: (operatorId: number) => void
 }
 
-export function HomeDashboard({ user, onNavigate }: HomeDashboardProps) {
+export function HomeDashboard({ user, onNavigate, onOpenMemo }: HomeDashboardProps) {
   const [data, setData] = useState<HomeDashboardResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -72,6 +73,7 @@ export function HomeDashboard({ user, onNavigate }: HomeDashboardProps) {
         groupLabel={data.group.label}
         data={data.communication}
         onNavigate={onNavigate}
+        onOpenMemo={onOpenMemo}
       />
     )
   }

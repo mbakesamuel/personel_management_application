@@ -52,6 +52,7 @@ export type AppView =
   | "allocation-letters"
   | "allowance-change-letters"
   | "communication-lines"
+  | "operator-exports"
 
 export type SidebarItem = {
   view: AppView

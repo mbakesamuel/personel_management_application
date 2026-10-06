@@ -16,6 +16,7 @@ import {
   unitIdsForUser,
 } from './authz.service.js'
 import { resolveDashboardGroup } from './dashboard-groups.service.js'
+import { communicationService } from './communication.service.js'
 import {
   resolveLiveEmployees,
   unitCodesMatch,
@@ -111,6 +112,7 @@ async function buildCommunicationDashboard(): Promise<CommunicationDashboard> {
     operators,
     details,
     batchesThisMonth,
+    pendingMemos,
   ] = await Promise.all([
       prisma.fleetRegistration.count({ where: { endDate: null } }),
       prisma.fleetRegistration.count({ where: { endDate: { not: null } } }),
@@ -144,6 +146,7 @@ async function buildCommunicationDashboard(): Promise<CommunicationDashboard> {
       prisma.communicationBatch.count({
         where: { createdAt: { gte: monthStart, lt: monthEnd } },
       }),
+      communicationService.pendingMemoCounts(),
     ])
 
   const employees = new Set(openRows.map((row) => row.matricule))
@@ -184,6 +187,7 @@ async function buildCommunicationDashboard(): Promise<CommunicationDashboard> {
           right.openLines - left.openLines ||
           left.name.localeCompare(right.name),
       ),
+    pendingMemos,
     airtimeTotal,
     dataTotal,
     batchesThisMonth,

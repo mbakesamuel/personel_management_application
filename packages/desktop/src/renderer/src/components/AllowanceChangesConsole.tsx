@@ -35,6 +35,7 @@ export type CorrespondenceFocus = {
 type AllowanceChangesConsoleProps = {
   onClose: () => void
   focus?: CorrespondenceFocus | null
+  operatorId?: number | null
 }
 
 function today() {
@@ -66,8 +67,9 @@ async function readError(res: Response, fallback: string) {
 export function AllowanceChangesConsole({
   onClose,
   focus = null,
+  operatorId: openedOperatorId = null,
 }: AllowanceChangesConsoleProps) {
-  const initialOperatorId = focus?.operatorIds[0]
+  const initialOperatorId = focus?.operatorIds[0] ?? openedOperatorId
   const [operators, setOperators] = useState<CommunicationOperator[]>([])
   const [rows, setRows] = useState<CommunicationMemoDraftRow[]>([])
   const [operatorId, setOperatorId] = useState(

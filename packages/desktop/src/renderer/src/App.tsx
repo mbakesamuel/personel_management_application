@@ -33,6 +33,7 @@ import {
 import { AllowanceHistoryConsole } from "@/components/AllowanceHistoryConsole";
 import { AllowanceChangeLettersConsole } from "@/components/AllowanceChangeLettersConsole";
 import { CommunicationLinesConsole } from "@/components/CommunicationLinesConsole";
+import { OperatorExportConsole } from "@/components/OperatorExportConsole";
 import { PersonnelConsole } from "./components/PersonnelConsole";
 import { ViewErrorBoundary } from "./components/ViewErrorBoundary";
 import { PositionKeywordsConsole } from "./components/PositionKeywordsConsole";
@@ -68,6 +69,7 @@ export default function App() {
   const [view, setView] = useState<AppView>("home");
   const [correspondenceFocus, setCorrespondenceFocus] =
     useState<CorrespondenceFocus | null>(null);
+  const [memoOperatorId, setMemoOperatorId] = useState<number | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
   const [authScreen, setAuthScreen] = useState<
@@ -84,7 +86,8 @@ export default function App() {
         view === "allowance-changes" ||
         view === "allowance-history" ||
         view === "allowance-change-letters" ||
-        view === "communication-lines") &&
+        view === "communication-lines" ||
+        view === "operator-exports") &&
       user &&
       !user.permissions.canCommunicationAllowance
     ) {
@@ -96,7 +99,10 @@ export default function App() {
   }, [view, user]);
 
   useEffect(() => {
-    if (view !== "allowance-changes") setCorrespondenceFocus(null);
+    if (view !== "allowance-changes") {
+      setCorrespondenceFocus(null);
+      setMemoOperatorId(null);
+    }
   }, [view]);
 
   function applyFinancialYear(next: FinancialYear | null, nextUser?: User) {
@@ -280,6 +286,10 @@ export default function App() {
             {
               view: "allowance-history" as const,
               label: "Individual history",
+            },
+            {
+              view: "operator-exports" as const,
+              label: "Operator exports",
             },
           ]
         : []),
@@ -546,6 +556,7 @@ export default function App() {
             <AllowanceChangesConsole
               onClose={() => setView("home")}
               focus={correspondenceFocus}
+              operatorId={memoOperatorId}
             />
           ) : view === "allowance-history" &&
             user.permissions.canCommunicationAllowance ? (
@@ -556,6 +567,9 @@ export default function App() {
           ) : view === "communication-lines" &&
             user.permissions.canCommunicationAllowance ? (
             <CommunicationLinesConsole onClose={() => setView("home")} />
+          ) : view === "operator-exports" &&
+            user.permissions.canCommunicationAllowance ? (
+            <OperatorExportConsole onClose={() => setView("home")} />
           ) : view === "position-keywords" ? (
             <PositionKeywordsConsole onClose={() => setView("home")} />
           ) : view === "allowance-matrix" ? (
@@ -592,7 +606,14 @@ export default function App() {
               onClose={() => setView("home")}
             />
           ) : (
-            <HomeDashboard user={user} onNavigate={setView} />
+            <HomeDashboard
+              user={user}
+              onNavigate={setView}
+              onOpenMemo={(operatorId) => {
+                setMemoOperatorId(operatorId);
+                setView("allowance-changes");
+              }}
+            />
           )}
         </main>
       </div>

@@ -285,11 +285,20 @@ export type CommunicationOperatorBar = {
   openLines: number
 }
 
+export type CommunicationPendingMemo = {
+  operatorId: number
+  name: string
+  creations: number
+  modifications: number
+  removals: number
+}
+
 export type CommunicationDashboard = {
   openLines: number
   closedLines: number
   employeesOnOpenLines: number
   operators: CommunicationOperatorBar[]
+  pendingMemos: CommunicationPendingMemo[]
   airtimeTotal: number
   dataTotal: number
   batchesThisMonth: number
@@ -576,6 +585,7 @@ export type CommunicationMemoDraftRow = {
   previousAirtime: number | null
   data: number
   previousData: number | null
+  endDate: string | null
 }
 
 export type CommunicationBatchSummary = {
@@ -613,6 +623,7 @@ export type CommunicationBatchRemoval = {
 
 export type CommunicationBatchAdjustmentRow = {
   employeeName: string
+  matricule: string
   designation: string | null
   phoneNumber: string
   accountNo: string | null

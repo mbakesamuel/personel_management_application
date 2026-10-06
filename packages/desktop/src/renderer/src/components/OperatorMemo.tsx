@@ -1,5 +1,7 @@
 import type { CommunicationBatchReport } from '@personel-management-app/shared'
 import directorSignature from '../assets/director-signature.png?inline'
+import letterfoot from '../assets/header-F.png?inline'
+import letterhead from '../assets/header-H.png?inline'
 import organizationStamp from '../assets/organization-stamp.png?inline'
 import { REPORT_COMPANY_NAME } from './ReportHeader'
 
@@ -83,6 +85,7 @@ function fleetWord(operator: MemoOperator, operatorName: string) {
   return escapeHtml(operatorName)
 }
 
+//date parts for the letter
 function dateParts(iso: string) {
   const [year, month, day] = iso.split('-').map(Number)
   if (!year || !month || !day) return null
@@ -416,15 +419,29 @@ function letterHtml(
   </article>`
 }
 
-const REPORT_CSS = `
-@page { size: A4; margin: 12mm; }
-@page letter { size: A4; margin: 2mm 10mm 2mm 10mm; }
+const PAGE_CSS = `
 * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 html, body { margin: 0; background: #fff; color: #000; font-family: "Times New Roman", Times, serif; font-size: 12pt; }
 body { padding: 12mm; }
-.toolbar { position: sticky; top: 0; display: flex; justify-content: flex-end; margin: -12mm -12mm 8mm; padding: 8px 12mm; background: #f4f4f4; border-bottom: 1px solid #ccc; }
+.toolbar { position: sticky; top: 0; z-index: 2; display: flex; justify-content: flex-end; margin: -12mm -12mm 8mm; padding: 8px 12mm; background: #f4f4f4; border-bottom: 1px solid #ccc; }
 .toolbar button { font: inherit; padding: 6px 14px; cursor: pointer; }
-.letter { page: letter; padding-top: 3cm; padding-bottom: 3cm; }
+table { width: calc(100% - 1px); border-collapse: collapse; font-size: 11pt; }
+th, td { border: 1px solid #000; padding: 4px 6px; text-align: left; }
+th:last-child, td:last-child { border-right: 1px solid #000; }
+td.num { text-align: right; }
+@media print {
+  body { padding: 0; }
+  .toolbar { display: none !important; }
+}
+`
+
+const LETTER_CSS = `
+${PAGE_CSS}
+@page { size: A4; margin: 2mm 10mm 2mm 10mm; }
+.letterhead, .letterfoot { position: fixed; left: 50%; z-index: 1; width: 190mm; height: auto; transform: translateX(-50%); }
+.letterhead { top: 16mm; }
+.letterfoot { bottom: 4mm; }
+.letter { padding-top: 8mm; padding-bottom: 52mm; }
 .letter + .letter { break-before: page; }
 .date { text-align: right; }
 .attn { display: flex; justify-content: flex-start; gap: 2rem; }
@@ -432,10 +449,6 @@ body { padding: 12mm; }
 h2 { text-align: center; font-size: 14pt; text-decoration: underline; }
 .body p { line-height: 1.45; text-align: justify; }
 .account { font-weight: 700; }
-table { width: calc(100% - 1px); border-collapse: collapse; font-size: 11pt; }
-th, td { border: 1px solid #000; padding: 4px 6px; text-align: left; }
-th:last-child, td:last-child { border-right: 1px solid #000; }
-td.num { text-align: right; }
 td.name { text-transform: uppercase; }
 td.status { font-weight: 700; }
 .thanks { margin-top: 18px; }
@@ -445,16 +458,23 @@ td.status { font-weight: 700; }
 .stamp { height: 28mm; width: auto; }
 .sign p { margin: 0; }
 .sign-name { font-weight: 700; }
+@media print {
+  .letterhead { top: 2mm; }
+  .letterfoot { bottom: 2mm; }
+  .letter { padding-top: 40mm; padding-bottom: 40mm; }
+}
+`
+
+const PLAIN_CSS = `
+${PAGE_CSS}
+@page { size: A4; margin: 8mm 4mm 8mm 4mm; }
 .plain-head { text-align: center; }
 .plain-head p { margin: 0; }
 .plain-head .company { font-weight: 700; }
 .plain h1 { font-size: 14pt; margin: 12px 0 4px; text-align: center; }
 .plain h2 { text-align: left; text-decoration: none; font-size: 12pt; margin-top: 18px; }
-@media print {
-  body { padding: 0; }
-  .letter { padding-top: 0; padding-bottom: 0; }
-  .toolbar { display: none !important; }
-}
+.prepared { width: fit-content; margin-top: 18px; margin-left: 10px; text-align: left; }
+.prepared p { margin: 0 0 16px; }
 `
 
 export type OperatorMemoLetter = {
@@ -464,8 +484,8 @@ export type OperatorMemoLetter = {
   rows: OperatorMemoRow[]
 }
 
-function documentHtml(title: string, pages: string) {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title><style>${REPORT_CSS}</style></head><body><div class="toolbar"><button type="button" onclick="window.api.printReportWindow()">Print</button></div>${pages}</body></html>`
+function documentHtml(title: string, pages: string, css: string) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title><style>${css}</style></head><body><div class="toolbar"><button type="button" onclick="window.api.printReportWindow()">Print</button></div>${pages}</body></html>`
 }
 
 export function buildOperatorMemosHtml(
@@ -477,7 +497,11 @@ export function buildOperatorMemosHtml(
       letterHtml(letter.kind, letter.letterDate, letter.effectDate, letter.rows, address),
     )
     .join('')
-  return documentHtml(address.operatorName, pages)
+  return documentHtml(
+    address.operatorName,
+    `<img class="letterhead" src="${letterhead}" alt="Cameroon Development Corporation" /><img class="letterfoot" src="${letterfoot}" alt="CDC offices and contact" />${pages}`,
+    LETTER_CSS,
+  )
 }
 
 function monthYear(iso: string) {
@@ -499,10 +523,17 @@ function designationCell(value: string | null) {
 
 /* GM's memo for communication allowance changes */
 function plainBatchArticle(report: CommunicationBatchReport) {
+  const actions = [
+    report.creations.length > 0 ? { word: 'ADD', place: 'TO' } : null,
+    report.modifications.length > 0 ? { word: 'MODIFY', place: 'IN THE' } : null,
+    report.removals.length > 0 ? { word: 'REMOVE', place: 'FROM' } : null,
+  ].filter((action) => action != null)
+  const last = actions[actions.length - 1]
+  const actionPhrase = last ? `TO ${actions.map((action) => action.word).join('/')} ${last.place} ` : 'FROM '
   const modifications =
     report.modifications.length === 0
-      ? '<p>None</p>'
-      : `<table><thead><tr><th>SN</th><th>Employee</th><th>Designation</th><th>Phone</th><th>Service</th><th>Previous Amt</th><th>New Amount</th></tr></thead><tbody>${report.modifications
+      ? ''
+      : `<h2>Modification</h2><table><thead><tr><th>SN</th><th>Employee</th><th>Designation</th><th>Phone</th><th>Service</th><th>Previous Amt</th><th>New Amount</th></tr></thead><tbody>${report.modifications
           .map(
             (row, index) =>
               `<tr><td>${index + 1}</td><td>${escapeHtml(row.employeeName)}<br />${escapeHtml(row.matricule)}</td><td>${designationCell(row.designation)}</td><td>${escapeHtml(row.phoneNumber)}</td><td>${escapeHtml(row.serviceName)}</td><td class="num">${row.previousAmount == null ? '—' : formatAmount(row.previousAmount)}</td><td class="num">${formatAmount(row.amount)}</td></tr>`,
@@ -510,8 +541,8 @@ function plainBatchArticle(report: CommunicationBatchReport) {
           .join('')}</tbody></table>`
   const removals =
     report.removals.length === 0
-      ? '<p>None</p>'
-      : `<table><thead><tr><th>SN</th><th>Employee</th><th>Designation</th><th>Phone</th><th>End date</th></tr></thead><tbody>${report.removals
+      ? ''
+      : `<h2>Removal</h2><table><thead><tr><th>SN</th><th>Employee</th><th>Designation</th><th>Phone</th><th>End date</th></tr></thead><tbody>${report.removals
           .map(
             (row, index) =>
               `<tr><td>${index + 1}</td><td>${escapeHtml(row.employeeName)}<br />${escapeHtml(row.matricule)}</td><td>${designationCell(row.designation)}</td><td>${escapeHtml(row.phoneNumber)}</td><td>${escapeHtml(row.endDate)}</td></tr>`,
@@ -523,26 +554,29 @@ function plainBatchArticle(report: CommunicationBatchReport) {
       : `<h2>Addition</h2><table><thead><tr><th>SN</th><th>Employee</th><th>Designation</th><th>Phone</th><th>Amount</th></tr></thead><tbody>${report.creations
           .map(
             (row, index) =>
-              `<tr><td>${index + 1}</td><td>${escapeHtml(row.employeeName)}</td><td>${designationCell(row.designation)}</td><td>${escapeHtml(row.phoneNumber)}</td><td class="num">${formatAmount(row.airtime)}</td></tr>`,
+              `<tr><td>${index + 1}</td><td>${escapeHtml(row.employeeName)}<br />${escapeHtml(row.matricule)}</td><td>${designationCell(row.designation)}</td><td>${escapeHtml(row.phoneNumber)}</td><td class="num">${formatAmount(row.airtime)}</td></tr>`,
           )
           .join('')}</tbody></table>`
   const period = fleetPeriodLabel(report.effectiveDate, report.endDate)
-  return `<article class="letter plain">
+  return `<article class="plain">
     <header class="plain-head">
       <h1 class="company">${escapeHtml(REPORT_COMPANY_NAME)}</h1>
       <h3>Information Systems Department</h3>
-      <h5>NAMES OF WORKERS TO ADD/MODIFY/REMOVE FROM FLEET FOR ${escapeHtml(period)}</h5>
+      <h5>NAMES OF WORKERS ${actionPhrase}FLEET FOR ${escapeHtml(period)}</h5>
     </header>
     ${creations}
-    <h2>Modification</h2>
     ${modifications}
-    <h2>Removal</h2>
     ${removals}
+    <div class="prepared">
+      <p>Prepared By</p>
+      <p>Name:</p>
+      <p>Signature:</p>
+    </div>
   </article>`
 }
 
 export function buildPlainBatchReportHtml(report: CommunicationBatchReport) {
-  return documentHtml('Communication allowance changes', plainBatchArticle(report))
+  return documentHtml('Communication allowance changes', plainBatchArticle(report), PLAIN_CSS)
 }
 
 function letterAddress(report: CommunicationBatchReport): OperatorLetterAddress {
@@ -637,7 +671,11 @@ export function batchReportDocument(report: CommunicationBatchReport): {
       ? `${creation}${plainBatchArticle({ ...report, creations: [] })}`
       : creation
     return {
-      html: documentHtml(report.operatorName, pages),
+      html: documentHtml(
+        report.operatorName,
+        pages,
+        hasOther ? `${LETTER_CSS}${PLAIN_CSS}` : LETTER_CSS,
+      ),
       title: report.operatorName,
     }
   }

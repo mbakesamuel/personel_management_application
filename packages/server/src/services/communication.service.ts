@@ -9,6 +9,7 @@ import {
   type CommunicationDetailsDeleteInput,
   type CommunicationDetailsUpdateInput,
   type CommunicationMemoDraftRow,
+  type CommunicationPendingMemo,
   type CommunicationBatchReport,
   type CommunicationBatchSummary,
   type CommunicationOperator,
@@ -290,6 +291,7 @@ type MemoDiff = {
   matricule: string
   employeeName: string
   appointmentDate: Date
+  endDate: Date | null
   action: CommunicationBatchAction
   phoneNumber: string
   accountNo: string | null
@@ -304,6 +306,19 @@ type MemoDiff = {
     serviceId: number
     amount: number
   }[]
+}
+
+function memoAction(
+  endDate: Date | null,
+  fleetLines: ComparedLine[],
+  snapshot: ComparedLine[],
+  closure: boolean,
+): CommunicationBatchAction | null {
+  const closedWithoutSnapshot = endDate != null && snapshot.length === 0
+  const current = closure || closedWithoutSnapshot ? [] : fleetLines
+  if (current.length === 0 && snapshot.length === 0 && fleetLines.length === 0) return null
+  if (!closedWithoutSnapshot && lineSignature(current) === lineSignature(snapshot)) return null
+  return current.length === 0 ? 'REMOVAL' : snapshot.length === 0 ? 'CREATION' : 'MODIFICATION'
 }
 
 function lineSignature(lines: ComparedLine[]): string {
@@ -434,13 +449,16 @@ async function loadMemoDiffs(operatorId: number, onlyIds?: number[]): Promise<Me
     if (!registration) continue
     const snapshot = snapshotByRegistration.get(id) ?? []
     const fleetLines = currentByRegistration.get(id) ?? []
+    const action = memoAction(
+      registration.endDate,
+      fleetLines,
+      snapshot,
+      closureRegistrations.has(id),
+    )
+    if (!action) continue
     const closedWithoutSnapshot = registration.endDate != null && snapshot.length === 0
     const current =
       closureRegistrations.has(id) || closedWithoutSnapshot ? [] : fleetLines
-    if (current.length === 0 && snapshot.length === 0 && fleetLines.length === 0) continue
-    if (!closedWithoutSnapshot && lineSignature(current) === lineSignature(snapshot)) continue
-    const action: CommunicationBatchAction =
-      current.length === 0 ? 'REMOVAL' : snapshot.length === 0 ? 'CREATION' : 'MODIFICATION'
     const recorded = snapshot.length > 0 ? snapshot : fleetLines
     const contact = latestContact(recorded)
     const serviceIds = new Set([
@@ -470,6 +488,7 @@ async function loadMemoDiffs(operatorId: number, onlyIds?: number[]): Promise<Me
         ? employeeName(registration.employee.name, registration.employee.firstname)
         : registration.matricule,
       appointmentDate: registration.appointmentDate,
+      endDate: registration.endDate,
       action,
       phoneNumber: contact.phoneNumber,
       accountNo: contact.accountNo,
@@ -488,6 +507,130 @@ async function loadMemoDiffs(operatorId: number, onlyIds?: number[]): Promise<Me
   }
   diffs.sort((left, right) => left.employeeName.localeCompare(right.employeeName))
   return diffs
+}
+
+function toComparedLine(row: {
+  id: number
+  operatorAccountId: number | null
+  phoneNumber: string | null
+  serviceId: number
+  amount: number
+}): ComparedLine {
+  return {
+    id: row.id,
+    operatorAccountId: row.operatorAccountId,
+    phoneNumber: row.phoneNumber,
+    accountNo: null,
+    serviceId: row.serviceId,
+    amount: row.amount,
+  }
+}
+
+async function countPendingMemos(): Promise<CommunicationPendingMemo[]> {
+  const [operators, details, snapshots, registrations] = await Promise.all([
+    prisma.tbl_operator.findMany({
+      where: { deletedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.fleetRegDetails.findMany({
+      select: {
+        id: true,
+        fleetRegistrationId: true,
+        operator_id: true,
+        operator_AccountId: true,
+        phoneNumber: true,
+        serviceId: true,
+        amount: true,
+      },
+    }),
+    prisma.communicatedFleetLine.findMany({
+      select: {
+        id: true,
+        fleetRegistrationId: true,
+        operatorId: true,
+        operatorAccountId: true,
+        phoneNumber: true,
+        serviceId: true,
+        amount: true,
+        closure: true,
+      },
+    }),
+    prisma.fleetRegistration.findMany({
+      select: { id: true, endDate: true },
+    }),
+  ])
+
+  const endDateById = new Map(registrations.map((row) => [row.id, row.endDate]))
+  const currentByOperator = new Map<number, Map<number, ComparedLine[]>>()
+  const snapshotByOperator = new Map<number, Map<number, ComparedLine[]>>()
+  const closures = new Set<string>()
+
+  for (const row of details) {
+    const byRegistration = currentByOperator.get(row.operator_id) ?? new Map()
+    const lines = byRegistration.get(row.fleetRegistrationId) ?? []
+    lines.push(
+      toComparedLine({
+        id: row.id,
+        operatorAccountId: row.operator_AccountId,
+        phoneNumber: row.phoneNumber,
+        serviceId: row.serviceId,
+        amount: row.amount,
+      }),
+    )
+    byRegistration.set(row.fleetRegistrationId, lines)
+    currentByOperator.set(row.operator_id, byRegistration)
+  }
+
+  for (const row of snapshots) {
+    if (row.closure) closures.add(`${row.operatorId}:${row.fleetRegistrationId}`)
+    const byRegistration = snapshotByOperator.get(row.operatorId) ?? new Map()
+    const lines = byRegistration.get(row.fleetRegistrationId) ?? []
+    lines.push(
+      toComparedLine({
+        id: row.id,
+        operatorAccountId: row.operatorAccountId,
+        phoneNumber: row.phoneNumber,
+        serviceId: row.serviceId,
+        amount: row.amount,
+      }),
+    )
+    byRegistration.set(row.fleetRegistrationId, lines)
+    snapshotByOperator.set(row.operatorId, byRegistration)
+  }
+
+  const counts = operators.map((operator) => {
+    const current = currentByOperator.get(operator.id) ?? new Map()
+    const snapshot = snapshotByOperator.get(operator.id) ?? new Map()
+    const ids = new Set([...current.keys(), ...snapshot.keys()])
+    let creations = 0
+    let modifications = 0
+    let removals = 0
+    for (const id of ids) {
+      if (!endDateById.has(id)) continue
+      const action = memoAction(
+        endDateById.get(id) ?? null,
+        current.get(id) ?? [],
+        snapshot.get(id) ?? [],
+        closures.has(`${operator.id}:${id}`),
+      )
+      if (action === 'CREATION') creations += 1
+      else if (action === 'MODIFICATION') modifications += 1
+      else if (action === 'REMOVAL') removals += 1
+    }
+    return { operatorId: operator.id, name: operator.name, creations, modifications, removals }
+  })
+
+  return counts
+    .filter((row) => row.creations + row.modifications + row.removals > 0)
+    .sort(
+      (left, right) =>
+        right.creations +
+          right.modifications +
+          right.removals -
+          (left.creations + left.modifications + left.removals) ||
+        left.name.localeCompare(right.name),
+    )
 }
 
 async function replacePrefixes(
@@ -1391,6 +1534,7 @@ export const communicationService = {
           const data = serviceAmount(operatorLine, dataId)
           return {
             employeeName: person,
+            matricule: registration.matricule,
             designation: designationOf(registration.matricule),
             phoneNumber: line.phoneNumber || contact?.phoneNumber || '',
             accountNo: line.accountNo ?? contact?.operatorAccount?.accountNo ?? null,
@@ -1421,6 +1565,10 @@ export const communicationService = {
     }
   },
 
+  async pendingMemoCounts(): Promise<CommunicationPendingMemo[]> {
+    return countPendingMemos()
+  },
+
   async listMemoDraft(operatorId: number): Promise<CommunicationMemoDraftRow[]> {
     const diffs = await loadMemoDiffs(operatorId)
     return diffs.map((row) => ({
@@ -1434,6 +1582,7 @@ export const communicationService = {
       previousAirtime: row.previousAirtime,
       data: row.data,
       previousData: row.previousData,
+      endDate: row.endDate ? toDateOnly(row.endDate) : null,
     }))
   },
 
@@ -1452,6 +1601,7 @@ export const communicationService = {
         .filter((line) => line.action === action)
         .map((line) => ({
           employeeName: line.employeeName,
+          matricule: line.matricule,
           designation: designationOf(line.matricule),
           phoneNumber: line.phoneNumber,
           accountNo: line.accountNo,

@@ -35,6 +35,7 @@ export type {
   DashboardGroupSummary,
   DashboardGroupListItem,
   CommunicationOperatorBar,
+  CommunicationPendingMemo,
   CommunicationDashboard,
   AllowanceAmountBar,
   AllowanceDashboard,
