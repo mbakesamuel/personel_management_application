@@ -34,6 +34,9 @@ import { AllowanceHistoryConsole } from "@/components/AllowanceHistoryConsole";
 import { AllowanceChangeLettersConsole } from "@/components/AllowanceChangeLettersConsole";
 import { CommunicationLinesConsole } from "@/components/CommunicationLinesConsole";
 import { OperatorExportConsole } from "@/components/OperatorExportConsole";
+import { LeaveConsole } from "./components/LeaveConsole";
+import { PermissionsConsole } from "./components/PermissionsConsole";
+import { LeaveSetupConsole } from "./components/LeaveSetupConsole";
 import { PersonnelConsole } from "./components/PersonnelConsole";
 import { ViewErrorBoundary } from "./components/ViewErrorBoundary";
 import { PositionKeywordsConsole } from "./components/PositionKeywordsConsole";
@@ -167,6 +170,14 @@ export default function App() {
             },
           ]
         : []),
+      ...(perms?.canLeave
+        ? [
+            {
+              view: "leave-setup" as const,
+              label: "Leave setup",
+            },
+          ]
+        : []),
       ...(perms?.canCommunicationAllowance
         ? [
             {
@@ -234,7 +245,19 @@ export default function App() {
         ? [
             {
               view: "personnel" as const,
-              label: "Personnel Management",
+              label: "Personnel",
+            },
+          ]
+        : []),
+      ...(perms?.canLeave
+        ? [
+            {
+              view: "permissions" as const,
+              label: "Permissions",
+            },
+            {
+              view: "leave" as const,
+              label: "Leaves Processing",
             },
           ]
         : []),
@@ -518,6 +541,18 @@ export default function App() {
               currentUser={user}
               onClose={() => setView("home")}
             />
+          ) : view === "leave-setup" && user.permissions.canLeave ? (
+            <LeaveSetupConsole
+              currentUser={user}
+              onClose={() => setView("home")}
+            />
+          ) : view === "permissions" && user.permissions.canLeave ? (
+            <PermissionsConsole
+              currentUser={user}
+              onClose={() => setView("home")}
+            />
+          ) : view === "leave" && user.permissions.canLeave ? (
+            <LeaveConsole currentUser={user} onClose={() => setView("home")} />
           ) : view === "personnel" ? (
             <ViewErrorBoundary label="Personnel screen crashed">
               <PersonnelConsole

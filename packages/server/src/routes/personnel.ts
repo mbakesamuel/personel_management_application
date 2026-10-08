@@ -3,11 +3,19 @@ import { zValidator } from '@hono/zod-validator'
 import {
   EmployeeCreateSchema,
   EmployeeListQuerySchema,
+  EmployeeMemoCreateSchema,
+  EmployeeMemoUpdateSchema,
+  EmployeeSanctionCreateSchema,
+  EmployeeSanctionUpdateSchema,
   EmployeeUpdateSchema,
   WorkflowReviewSchema,
 } from '@personel-management-app/shared'
 import { z } from 'zod'
 import type { AppVariables } from '../middleware/current-user.js'
+import {
+  employeeMemoService,
+  employeeSanctionService,
+} from '../services/personnel-memo.service.js'
 import {
   classificationService,
   contractService,
@@ -202,6 +210,69 @@ const ClassificationCreateSchema = z.object({
 const ClassificationUpdateSchema = ClassificationCreateSchema.omit({
   matricule: true,
 }).partial()
+
+const AttachmentParam = z.object({
+  id: z.coerce.number().int().positive(),
+  attachmentId: z.coerce.number().int().positive(),
+})
+
+const employeeMemos = childRouter({
+  list: (query) => employeeMemoService.list(query),
+  get: (id) => employeeMemoService.get(id),
+  create: (userId, data) => employeeMemoService.create(userId, data),
+  update: (userId, id, data) => employeeMemoService.update(userId, id, data),
+  validate: (userId, id, review) =>
+    employeeMemoService.validate(userId, id, review),
+  reject: (userId, id, review) => employeeMemoService.reject(userId, id, review),
+  createSchema: EmployeeMemoCreateSchema,
+  updateSchema: EmployeeMemoUpdateSchema,
+}).post(
+  '/:id/attachments',
+  zValidator('param', IdParam),
+  async (c) =>
+    handle(c, async () => {
+      const id = c.req.valid('param').id
+      await assertChildById(c.get('currentUser'), id, employeeMemoService.get)
+      const body = await c.req.parseBody()
+      const file = body.file
+      if (!(file instanceof File)) {
+        throw new PersonnelWorkflowError('Choose a file to attach', 400)
+      }
+      const remarks = typeof body.remarks === 'string' ? body.remarks : null
+      return employeeMemoService.addAttachment(actorId(c), id, file, remarks)
+    }, 201),
+).get(
+  '/:id/attachments/:attachmentId',
+  zValidator('param', AttachmentParam),
+  async (c) => {
+    try {
+      const { id, attachmentId } = c.req.valid('param')
+      await assertChildById(c.get('currentUser'), id, employeeMemoService.get)
+      const file = await employeeMemoService.readAttachment(id, attachmentId)
+      const encoded = encodeURIComponent(file.originalName)
+      return new Response(file.bytes, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': `attachment; filename*=UTF-8''${encoded}`,
+        },
+      })
+    } catch (err) {
+      const mapped = mapPersonnelError(err)
+      if (mapped) return c.json({ error: mapped.message }, mapped.status)
+      throw err
+    }
+  },
+).delete(
+  '/:id/attachments/:attachmentId',
+  zValidator('param', AttachmentParam),
+  async (c) =>
+    handle(c, async () => {
+      const { id, attachmentId } = c.req.valid('param')
+      await assertChildById(c.get('currentUser'), id, employeeMemoService.get)
+      return employeeMemoService.removeAttachment(id, attachmentId)
+    }),
+)
 
 function mapPersonnelError(err: unknown) {
   if (err instanceof ForbiddenError) {
@@ -633,6 +704,23 @@ export const personnel = new Hono<{ Variables: AppVariables }>()
         movementService.reject(userId, id, review),
       createSchema: MovementCreateSchema,
       updateSchema: MovementUpdateSchema,
+    }),
+  )
+  .route('/employee-memos', employeeMemos)
+  .route(
+    '/employee-sanctions',
+    childRouter({
+      list: (query) => employeeSanctionService.list(query),
+      get: (id) => employeeSanctionService.get(id),
+      create: (userId, data) => employeeSanctionService.create(userId, data),
+      update: (userId, id, data) =>
+        employeeSanctionService.update(userId, id, data),
+      validate: (userId, id, review) =>
+        employeeSanctionService.validate(userId, id, review),
+      reject: (userId, id, review) =>
+        employeeSanctionService.reject(userId, id, review),
+      createSchema: EmployeeSanctionCreateSchema,
+      updateSchema: EmployeeSanctionUpdateSchema,
     }),
   )
   .route(

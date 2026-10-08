@@ -48,6 +48,7 @@ type FormState = {
   canFinancialYears: boolean
   canOrganization: boolean
   canPersonnel: boolean
+  canLeave: boolean
   canAllowances: boolean
   canAllowanceTypes: boolean
   canAllowanceCatalog: boolean
@@ -76,6 +77,7 @@ const PERMISSION_FIELDS = [
   ['canFinancialYears', 'Financial years'],
   ['canOrganization', 'Organization'],
   ['canPersonnel', 'Personnel'],
+  ['canLeave', 'Leave'],
   ['canAllowances', 'Allowances module'],
   ['canAllowanceTypes', 'Allowance types'],
   ['canAllowanceCatalog', 'Allowance catalog'],
@@ -106,6 +108,7 @@ function emptyForm(defaultJurisdiction = 'section'): FormState {
     canFinancialYears: false,
     canOrganization: false,
     canPersonnel: false,
+    canLeave: false,
     canAllowances: false,
     canAllowanceTypes: false,
     canAllowanceCatalog: false,
@@ -134,6 +137,7 @@ function permissionsSummary(role: RoleDefinition): string {
   if (role.canFinancialYears) flags.push('FY')
   if (role.canOrganization) flags.push('Org')
   if (role.canPersonnel) flags.push('Personnel')
+  if (role.canLeave) flags.push('Leave')
   if (role.canAllowances) flags.push('Allowances')
   if (role.canAllowanceTypes) flags.push('Types')
   if (role.canAllowanceCatalog) flags.push('Catalog')
@@ -294,6 +298,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
       canFinancialYears: row.canFinancialYears,
       canOrganization: row.canOrganization,
       canPersonnel: row.canPersonnel,
+      canLeave: row.canLeave,
       canAllowances: row.canAllowances,
       canAllowanceTypes: row.canAllowanceTypes,
       canAllowanceCatalog: row.canAllowanceCatalog,
@@ -331,6 +336,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
         canFinancialYears: form.canFinancialYears,
         canOrganization: form.canOrganization,
         canPersonnel: form.canPersonnel,
+        canLeave: form.canLeave,
         canAllowances: form.canAllowances,
         canAllowanceTypes: form.canAllowanceTypes,
         canAllowanceCatalog: form.canAllowanceCatalog,

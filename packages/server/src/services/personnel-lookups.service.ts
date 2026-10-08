@@ -124,10 +124,99 @@ export const religionLookup = createLookupService(
   'Religion',
   asLookup(prisma.tbl_religion),
 )
-export const sanctionLookup = createLookupService(
-  'Sanction',
-  asLookup(prisma.tbl_sanction),
-)
+export const sanctionLookup = {
+  list() {
+    return prisma.tbl_sanction.findMany({ orderBy: { id: 'asc' } })
+  },
+  async get(id: string) {
+    const numericId = Number(id)
+    if (!Number.isInteger(numericId)) {
+      throw new PersonnelNotFoundError('Sanction not found')
+    }
+    const row = await prisma.tbl_sanction.findUnique({
+      where: { id: numericId },
+    })
+    if (!row) throw new PersonnelNotFoundError('Sanction not found')
+    return row
+  },
+  create(input: { sanctionName: string }) {
+    return withPrisma(() =>
+      prisma.tbl_sanction.create({
+        data: { sanctionName: input.sanctionName.trim() },
+      }),
+    )
+  },
+  async update(id: string, input: { sanctionName?: string }) {
+    await this.get(id)
+    const numericId = Number(id)
+    return withPrisma(() =>
+      prisma.tbl_sanction.update({
+        where: { id: numericId },
+        data: {
+          ...(input.sanctionName !== undefined
+            ? { sanctionName: input.sanctionName.trim() }
+            : {}),
+        },
+      }),
+    )
+  },
+  async remove(id: string) {
+    await this.get(id)
+    const numericId = Number(id)
+    return withPrisma(() =>
+      prisma.tbl_sanction.delete({ where: { id: numericId } }),
+    )
+  },
+}
+
+export const memoTypeLookup = {
+  list() {
+    return prisma.tbl_memo_type.findMany({ orderBy: { id: 'asc' } })
+  },
+  async get(id: string) {
+    const numericId = Number(id)
+    if (!Number.isInteger(numericId)) {
+      throw new PersonnelNotFoundError('Memo type not found')
+    }
+    const row = await prisma.tbl_memo_type.findUnique({
+      where: { id: numericId },
+    })
+    if (!row) throw new PersonnelNotFoundError('Memo type not found')
+    return row
+  },
+  create(input: { code: string; name: string }) {
+    return withPrisma(() =>
+      prisma.tbl_memo_type.create({
+        data: {
+          code: input.code.trim().toUpperCase(),
+          name: input.name.trim(),
+        },
+      }),
+    )
+  },
+  async update(id: string, input: { code?: string; name?: string }) {
+    await this.get(id)
+    const numericId = Number(id)
+    return withPrisma(() =>
+      prisma.tbl_memo_type.update({
+        where: { id: numericId },
+        data: {
+          ...(input.code !== undefined
+            ? { code: input.code.trim().toUpperCase() }
+            : {}),
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+        },
+      }),
+    )
+  },
+  async remove(id: string) {
+    await this.get(id)
+    const numericId = Number(id)
+    return withPrisma(() =>
+      prisma.tbl_memo_type.delete({ where: { id: numericId } }),
+    )
+  },
+}
 export const sexLookup = createLookupService('Sex', asLookup(prisma.tbl_sex))
 export const classificationLookup = createLookupService(
   'Classification',

@@ -51,6 +51,7 @@ async function mapRoleRow(row: {
   can_financial_years: boolean
   can_organization: boolean
   can_personnel: boolean
+  can_leave: boolean
   can_allowances: boolean
   can_allowance_types: boolean
   can_allowance_catalog: boolean
@@ -81,6 +82,7 @@ async function mapRoleRow(row: {
     canFinancialYears: row.can_financial_years,
     canOrganization: row.can_organization,
     canPersonnel: row.can_personnel,
+    canLeave: row.can_leave,
     canAllowances: row.can_allowances,
     canAllowanceTypes: row.can_allowance_types,
     canAllowanceCatalog: row.can_allowance_catalog,
@@ -130,6 +132,7 @@ export async function getPermissionsForRole(
     canFinancialYears: def.canFinancialYears,
     canOrganization: def.canOrganization,
     canPersonnel: def.canPersonnel,
+    canLeave: def.canLeave,
     canAllowances: def.canAllowances,
     canAllowanceTypes: def.canAllowanceTypes,
     canAllowanceCatalog: def.canAllowanceCatalog,
@@ -230,6 +233,7 @@ export async function createRole(
         can_financial_years: input.canFinancialYears,
         can_organization: input.canOrganization,
         can_personnel: input.canPersonnel,
+        can_leave: input.canLeave,
         can_allowances: input.canAllowances,
         can_allowance_types: input.canAllowanceTypes,
         can_allowance_catalog: input.canAllowanceCatalog,
@@ -285,6 +289,7 @@ export async function updateRole(
       can_financial_years: input.canFinancialYears,
       can_organization: input.canOrganization,
       can_personnel: input.canPersonnel,
+      can_leave: input.canLeave,
       can_allowances: input.canAllowances,
       can_allowance_types: input.canAllowanceTypes,
       can_allowance_catalog: input.canAllowanceCatalog,
@@ -312,6 +317,7 @@ export async function updateRole(
       can_financial_years: input.canFinancialYears,
       can_organization: input.canOrganization,
       can_personnel: input.canPersonnel,
+      can_leave: input.canLeave,
       can_allowances: input.canAllowances,
       can_allowance_types: input.canAllowanceTypes,
       can_allowance_catalog: input.canAllowanceCatalog,

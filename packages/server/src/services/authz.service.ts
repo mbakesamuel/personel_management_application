@@ -327,6 +327,7 @@ export async function assertUserAssignmentInScope(
       canFinancialYears: false,
       canOrganization: false,
       canPersonnel: false,
+      canLeave: false,
       canAllowances: false,
       canAllowanceTypes: false,
       canAllowanceCatalog: false,

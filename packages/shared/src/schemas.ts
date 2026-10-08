@@ -56,6 +56,7 @@ export const RolePermissionsSchema = z.object({
   canFinancialYears: z.boolean(),
   canOrganization: z.boolean(),
   canPersonnel: z.boolean(),
+  canLeave: z.boolean(),
   canAllowances: z.boolean(),
   canAllowanceTypes: z.boolean(),
   canAllowanceCatalog: z.boolean(),
@@ -86,6 +87,7 @@ export const RoleDefinitionSchema = z.object({
   canFinancialYears: z.boolean(),
   canOrganization: z.boolean(),
   canPersonnel: z.boolean(),
+  canLeave: z.boolean(),
   canAllowances: z.boolean(),
   canAllowanceTypes: z.boolean(),
   canAllowanceCatalog: z.boolean(),
@@ -114,6 +116,7 @@ export const RoleUpdateSchema = z.object({
   canFinancialYears: z.boolean(),
   canOrganization: z.boolean(),
   canPersonnel: z.boolean(),
+  canLeave: z.boolean(),
   canAllowances: z.boolean(),
   canAllowanceTypes: z.boolean(),
   canAllowanceCatalog: z.boolean(),
@@ -746,6 +749,157 @@ export const EmployeeUpdateSchema = EmployeeCreateSchema.omit({
   matricule: true,
 }).partial()
 
+const OptionalDateSchema = z
+  .union([DateOnlySchema, z.literal(''), z.null()])
+  .optional()
+
+export const EmployeeMemoCreateSchema = z.object({
+  matricule: z.string().trim().min(1).max(30),
+  memoTypeId: z.number().int().positive(),
+  memoNumber: z.string().trim().max(80).nullable().optional(),
+  memoDate: DateOnlySchema,
+  subject: z.string().trim().min(1).max(191),
+  details: z.string().max(8000).nullable().optional(),
+  incidentDate: OptionalDateSchema,
+  effectiveDate: OptionalDateSchema,
+})
+
+export const EmployeeMemoUpdateSchema = EmployeeMemoCreateSchema.omit({
+  matricule: true,
+}).partial()
+
+export const EmployeeSanctionCreateSchema = z.object({
+  matricule: z.string().trim().min(1).max(30),
+  memoId: z.number().int().positive(),
+  sanctionId: z.number().int().positive(),
+  reason: z.string().max(8000).nullable().optional(),
+  startDate: OptionalDateSchema,
+  endDate: OptionalDateSchema,
+})
+
+export const EmployeeSanctionUpdateSchema = EmployeeSanctionCreateSchema.omit({
+  matricule: true,
+  memoId: true,
+}).partial()
+
+export const LeaveTypeCreateSchema = z.object({
+  code: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(1).max(120),
+  requireAttachment: z.boolean().optional(),
+  carryForwardAllowed: z.boolean().optional(),
+  active: z.boolean().optional(),
+})
+export const LeaveTypeUpdateSchema = LeaveTypeCreateSchema.partial()
+
+export const LeavePolicyCreateSchema = z.object({
+  code: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(1).max(120),
+  method: z.enum(['METHOD_1', 'METHOD_2']),
+  effectiveFrom: DateOnlySchema,
+  effectiveTo: OptionalDateSchema,
+  active: z.boolean().optional(),
+  description: z.string().trim().max(191).nullable().optional(),
+})
+export const LeavePolicyUpdateSchema = LeavePolicyCreateSchema.partial()
+
+export const LeaveEntitlementCreateSchema = z.object({
+  annualDays: z.number().positive(),
+  effectiveFrom: DateOnlySchema,
+  effectiveTo: OptionalDateSchema,
+  active: z.boolean().optional(),
+  notes: z.string().trim().max(191).nullable().optional(),
+})
+export const LeaveEntitlementUpdateSchema = LeaveEntitlementCreateSchema.partial()
+
+export const LeaveMonthlyRateCreateSchema = z.object({
+  monthlyDays: z.number().positive(),
+  effectiveFrom: DateOnlySchema,
+  effectiveTo: OptionalDateSchema,
+  active: z.boolean().optional(),
+  notes: z.string().trim().max(191).nullable().optional(),
+})
+export const LeaveMonthlyRateUpdateSchema = LeaveMonthlyRateCreateSchema.partial()
+
+export const LeaveSeniorityCreateSchema = z.object({
+  minYears: z.number().int().min(0),
+  maxYears: z.number().int().min(0).nullable().optional(),
+  bonusDays: z.number().min(0),
+  effectiveFrom: DateOnlySchema,
+  effectiveTo: OptionalDateSchema,
+  active: z.boolean().optional(),
+})
+export const LeaveSeniorityUpdateSchema = LeaveSeniorityCreateSchema.partial()
+
+export const LeaveTravelAllowanceCreateSchema = z.object({
+  minCategory: z.number().int().min(1),
+  maxCategory: z.number().int().min(1),
+  amount: z.number().int().min(0),
+  effectiveFrom: DateOnlySchema,
+  effectiveTo: OptionalDateSchema,
+  active: z.boolean().optional(),
+})
+export const LeaveTravelAllowanceUpdateSchema =
+  LeaveTravelAllowanceCreateSchema.partial()
+
+export const LeaveRequestCreateSchema = z.object({
+  matricule: z.string().trim().min(1).max(30),
+  leaveTypeId: z.number().int().positive(),
+  applicationDate: DateOnlySchema,
+  startDate: DateOnlySchema,
+  reason: z.string().max(8000).nullable().optional(),
+})
+export const LeaveRequestUpdateSchema = LeaveRequestCreateSchema.omit({
+  matricule: true,
+}).partial()
+
+export const LeaveProcessSchema = z.object({
+  reviewNote: z.string().max(2000).optional().nullable(),
+  memoRef: z.string().trim().min(1).max(40),
+})
+
+export const PermissionRequestCreateSchema = z.object({
+  matricule: z.string().trim().min(1).max(30),
+  days: z.number().int().positive(),
+  applicationDate: DateOnlySchema,
+  reason: z.string().max(8000).nullable().optional(),
+})
+export const PermissionRequestUpdateSchema = PermissionRequestCreateSchema.omit({
+  matricule: true,
+}).partial()
+
+const HOLIDAY_DAYS_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+const PublicHolidayFieldsSchema = z.object({
+  month: z.number().int().min(1).max(12),
+  day: z.number().int().min(1).max(31),
+  name: z.string().trim().min(1).max(120),
+  active: z.boolean().optional(),
+})
+
+export const PublicHolidayCreateSchema = PublicHolidayFieldsSchema.refine(
+  (value) => value.day <= (HOLIDAY_DAYS_IN_MONTH[value.month] ?? 0),
+  {
+    message: 'That day does not exist in the selected month',
+    path: ['day'],
+  },
+)
+export const PublicHolidayUpdateSchema = PublicHolidayFieldsSchema.partial()
+
+export const LeaveLetterSettingSchema = z.object({
+  saturdayWorking: z.boolean(),
+  delegationPreface: z.string().trim().min(1).max(255),
+  delegationName: z.string().trim().min(1).max(120),
+  delegationTitle: z.string().trim().min(1).max(160),
+  signCategory9: z.string().trim().min(1).max(160),
+  ccBelow: z.string().trim().min(1).max(500),
+  ccCategory9: z.string().trim().min(1).max(500),
+})
+
+export const LeaveResumptionCreateSchema = z.object({
+  actualReturnDate: DateOnlySchema,
+  remarks: z.string().trim().max(191).nullable().optional(),
+})
+
 export type UserInput = z.infer<typeof UserSchema>
 export type UserUpsertInput = z.infer<typeof UserUpsertSchema>
 export type ChangePasswordRequestInput = z.infer<
@@ -871,6 +1025,53 @@ export type CommunicationBatchCreateInput = z.infer<
 export type EmployeeListQuery = z.infer<typeof EmployeeListQuerySchema>
 export type EmployeeCreateInput = z.infer<typeof EmployeeCreateSchema>
 export type EmployeeUpdateInput = z.infer<typeof EmployeeUpdateSchema>
+export type EmployeeMemoCreateInput = z.infer<typeof EmployeeMemoCreateSchema>
+export type EmployeeMemoUpdateInput = z.infer<typeof EmployeeMemoUpdateSchema>
+export type EmployeeSanctionCreateInput = z.infer<
+  typeof EmployeeSanctionCreateSchema
+>
+export type EmployeeSanctionUpdateInput = z.infer<
+  typeof EmployeeSanctionUpdateSchema
+>
+export type LeaveTypeCreateInput = z.infer<typeof LeaveTypeCreateSchema>
+export type LeaveTypeUpdateInput = z.infer<typeof LeaveTypeUpdateSchema>
+export type LeavePolicyCreateInput = z.infer<typeof LeavePolicyCreateSchema>
+export type LeavePolicyUpdateInput = z.infer<typeof LeavePolicyUpdateSchema>
+export type LeaveEntitlementCreateInput = z.infer<
+  typeof LeaveEntitlementCreateSchema
+>
+export type LeaveEntitlementUpdateInput = z.infer<
+  typeof LeaveEntitlementUpdateSchema
+>
+export type LeaveMonthlyRateCreateInput = z.infer<
+  typeof LeaveMonthlyRateCreateSchema
+>
+export type LeaveMonthlyRateUpdateInput = z.infer<
+  typeof LeaveMonthlyRateUpdateSchema
+>
+export type LeaveSeniorityCreateInput = z.infer<typeof LeaveSeniorityCreateSchema>
+export type LeaveSeniorityUpdateInput = z.infer<typeof LeaveSeniorityUpdateSchema>
+export type LeaveTravelAllowanceCreateInput = z.infer<
+  typeof LeaveTravelAllowanceCreateSchema
+>
+export type LeaveTravelAllowanceUpdateInput = z.infer<
+  typeof LeaveTravelAllowanceUpdateSchema
+>
+export type LeaveRequestCreateInput = z.infer<typeof LeaveRequestCreateSchema>
+export type LeaveRequestUpdateInput = z.infer<typeof LeaveRequestUpdateSchema>
+export type LeaveProcessInput = z.infer<typeof LeaveProcessSchema>
+export type PermissionRequestCreateInput = z.infer<
+  typeof PermissionRequestCreateSchema
+>
+export type PermissionRequestUpdateInput = z.infer<
+  typeof PermissionRequestUpdateSchema
+>
+export type PublicHolidayCreateInput = z.infer<typeof PublicHolidayCreateSchema>
+export type PublicHolidayUpdateInput = z.infer<typeof PublicHolidayUpdateSchema>
+export type LeaveLetterSettingInput = z.infer<typeof LeaveLetterSettingSchema>
+export type LeaveResumptionCreateInput = z.infer<
+  typeof LeaveResumptionCreateSchema
+>
 
 export const DashboardGroupKindSchema = z.enum([
   'HR',

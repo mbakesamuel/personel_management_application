@@ -28,6 +28,8 @@
     "seed:roles": "tsx src/scripts/seed-roles.ts",
     "seed:roles-table": "tsx src/scripts/seed-roles-table.ts",
     "seed:decision-levels": "tsx src/scripts/seed-decision-levels.ts",
+    "seed:sanctions": "tsx src/scripts/seed-sanctions.ts",
+    "seed:leave": "tsx src/scripts/seed-leave.ts",
     "seed:letter-cc": "tsx src/scripts/seed-letter-cc.ts",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
     "seed:employees": "tsx src/scripts/seed-employees.ts",

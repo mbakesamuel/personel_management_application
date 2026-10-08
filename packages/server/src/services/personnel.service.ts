@@ -483,7 +483,7 @@ export const employeeService = {
   ): Promise<EmployeeOption> {
     const row = await prisma.tbl_employee.findUnique({ where: { matricule } })
     if (!row) throw new PersonnelNotFoundError('Employee not found')
-    assertCanValidate(row, userId)
+    await assertCanValidate(row, userId)
     const updated = await prisma.tbl_employee.update({
       where: { matricule },
       data: validateStamps(userId, review?.reviewNote),
@@ -535,7 +535,7 @@ async function supersedeAndValidate<T>(args: {
   ) => Promise<T>
   extraData?: Record<string, unknown>
 }) {
-  assertCanValidate(args.row, args.userId)
+  await assertCanValidate(args.row, args.userId)
   await args.extraAssert?.()
   return prisma.$transaction(async (tx) => {
     await args.supersede(tx)
@@ -1022,7 +1022,7 @@ export const employmentService = {
   },
   async validate(userId: number, id: number, review?: ReviewInput) {
     const row = await this.get(id)
-    assertCanValidate(row, userId)
+    await assertCanValidate(row, userId)
 
     const pendingContracts = await prisma.tbl_emp_contract.findMany({
       where: { employmentId: id, workflowStatus: 'PENDING' },

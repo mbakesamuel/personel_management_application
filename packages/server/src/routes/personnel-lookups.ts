@@ -20,6 +20,7 @@ import {
   nationalityLookup,
   regionLookup,
   religionLookup,
+  memoTypeLookup,
   sanctionLookup,
   sexLookup,
   transferTypeLookup,
@@ -138,9 +139,14 @@ const ReligionCreate = z.object({
   religionName: z.string().min(1),
 })
 const SanctionCreate = z.object({
-  id: z.string().min(1),
   sanctionName: z.string().min(1),
 })
+const SanctionUpdate = SanctionCreate.partial()
+const MemoTypeCreate = z.object({
+  code: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(1).max(120),
+})
+const MemoTypeUpdate = MemoTypeCreate.partial()
 const SexCreate = z.object({
   id: z.string().min(1),
   sexName: z.string().min(1),
@@ -273,7 +279,7 @@ export const personnelLookups = new Hono<{ Variables: AppVariables }>()
       update: (id, data) => sanctionLookup.update(id, data),
       remove: (id) => sanctionLookup.remove(id),
       createSchema: SanctionCreate,
-      updateSchema: SanctionCreate.omit({ id: true }).partial(),
+      updateSchema: SanctionUpdate,
     }),
   )
   .route(
@@ -322,6 +328,18 @@ export const personnelLookups = new Hono<{ Variables: AppVariables }>()
       remove: (id) => workStatusLookup.remove(id),
       createSchema: WorkStatusCreate,
       updateSchema: WorkStatusCreate.omit({ id: true }).partial(),
+    }),
+  )
+  .route(
+    '/memo-types',
+    lookupRouter({
+      list: () => memoTypeLookup.list(),
+      get: (id) => memoTypeLookup.get(id),
+      create: (data) => memoTypeLookup.create(data),
+      update: (id, data) => memoTypeLookup.update(id, data),
+      remove: (id) => memoTypeLookup.remove(id),
+      createSchema: MemoTypeCreate,
+      updateSchema: MemoTypeUpdate,
     }),
   )
   .route(

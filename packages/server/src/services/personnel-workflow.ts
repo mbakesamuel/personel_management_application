@@ -1,4 +1,4 @@
-import { canEditWorkflowStatus } from '@personel-management-app/shared'
+import { canEditWorkflowStatus, isAdmin } from '@personel-management-app/shared'
 import type { tbl_personnel_workflow_status } from '@prisma/client'
 import { prisma } from '../db.js'
 import { getPermissionsForRole } from './roles.service.js'
@@ -122,19 +122,26 @@ export async function assertCanEdit(
   )
 }
 
-export function assertCanValidate(record: WorkflowActor, userId: number): void {
+export async function assertCanValidate(
+  record: WorkflowActor,
+  userId: number,
+): Promise<void> {
   if (record.workflowStatus !== 'PENDING') {
     throw new PersonnelWorkflowError(
       'Only pending records can be validated',
       409,
     )
   }
-  if (record.createdById === userId) {
-    throw new PersonnelWorkflowError(
-      'You cannot validate a record you created',
-      403,
-    )
-  }
+  if (record.createdById !== userId) return
+  const user = await prisma.tbl_users.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  })
+  if (user && isAdmin(user.role)) return
+  throw new PersonnelWorkflowError(
+    'You cannot validate a record you created',
+    403,
+  )
 }
 
 export function assertCanReject(status: tbl_personnel_workflow_status): void {

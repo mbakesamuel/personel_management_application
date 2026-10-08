@@ -385,7 +385,7 @@ export const allowanceTypeService = {
   ): Promise<AllowanceTypeOption> {
     const existing = await prisma.tbl_allowance_type.findUnique({ where: { id } })
     if (!existing) throw new PersonnelNotFoundError('Allowance type not found')
-    assertCanValidate(existing, userId)
+    await assertCanValidate(existing, userId)
     const row = await prisma.tbl_allowance_type.update({
       where: { id },
       data: validateStamps(userId, review?.reviewNote),
@@ -492,7 +492,7 @@ export const allowanceService = {
       include: { allowanceType: true },
     })
     if (!existing) throw new PersonnelNotFoundError('Allowance not found')
-    assertCanValidate(existing, userId)
+    await assertCanValidate(existing, userId)
     const row = await prisma.tbl_allowance.update({
       where: { id },
       data: validateStamps(userId, review?.reviewNote),
@@ -645,7 +645,7 @@ export const allowanceRateService = {
       include: rateInclude,
     })
     if (!existing) throw new PersonnelNotFoundError('Allowance rate not found')
-    assertCanValidate(existing, userId)
+    await assertCanValidate(existing, userId)
     const row = await prisma.$transaction(async (tx) => {
       await tx.tbl_allowance_rate.updateMany({
         where: currentRateScope(
@@ -1069,7 +1069,7 @@ export const allowanceAllocationService = {
     if (!existing) {
       throw new PersonnelNotFoundError('Allowance allocation not found')
     }
-    assertCanValidate(existing, userId)
+    await assertCanValidate(existing, userId)
     const row = await prisma.$transaction(async (tx) => {
       await tx.tbl_allowance_allocation.updateMany({
         where: {

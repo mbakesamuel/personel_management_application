@@ -2276,8 +2276,10 @@ export function AllowancesConsole({
           />
         </FormDialogRow>
         <FormDialogHint>
-          Signed in as {currentUser.username ?? `user #${currentUser.id}`}. You
-          cannot validate a record you created.
+          Signed in as {currentUser.username ?? `user #${currentUser.id}`}.
+          {!isAdmin(currentUser.role)
+            ? ' You cannot validate a record you created.'
+            : null}
         </FormDialogHint>
         <FormDialogActions
           primaryLabel={

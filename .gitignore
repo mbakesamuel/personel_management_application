@@ -37,5 +37,8 @@ Desktop.ini
 coverage/
 .nyc_output/
 
+# Uploaded memo documents
+packages/server/data/
+
 # Large local seed data (keep on disk; do not push)
 packages/server/prisma/seeds/*.json

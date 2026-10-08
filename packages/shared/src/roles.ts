@@ -67,6 +67,7 @@ export type RolePermissions = {
   canFinancialYears: boolean
   canOrganization: boolean
   canPersonnel: boolean
+  canLeave: boolean
   canAllowances: boolean
   canAllowanceTypes: boolean
   canAllowanceCatalog: boolean
@@ -156,6 +157,7 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
       canFinancialYears: true,
       canOrganization: true,
       canPersonnel: true,
+      canLeave: true,
       canAllowances: true,
       canAllowanceTypes: true,
       canAllowanceCatalog: true,
@@ -182,6 +184,7 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
     canFinancialYears: false,
     canOrganization: false,
     canPersonnel: false,
+    canLeave: false,
     canAllowances: false,
     canAllowanceTypes: false,
     canAllowanceCatalog: false,

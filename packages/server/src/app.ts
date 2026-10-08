@@ -23,6 +23,8 @@ import { roles } from './routes/roles.js'
 import { jurisdictions } from './routes/jurisdictions.js'
 import { sectionThro } from './routes/section-thro.js'
 import { users } from './routes/users.js'
+import { leave } from './routes/leave.js'
+import { permissions } from './routes/permissions.js'
 import { personnel } from './routes/personnel.js'
 
 const app = new Hono<{ Variables: AppVariables }>()
@@ -48,6 +50,8 @@ const app = new Hono<{ Variables: AppVariables }>()
   .route('/dashboard', dashboard)
   .route('/dashboard-groups', dashboardGroups)
   .route('/personnel', personnel)
+  .route('/leave', leave)
+  .route('/permissions', permissions)
 
 export type AppType = typeof app
 export { app }

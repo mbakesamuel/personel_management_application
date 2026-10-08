@@ -46,7 +46,7 @@ export function FormDialog({
             <DialogDescription className="sr-only">{title}</DialogDescription>
           )}
         </DialogHeader>
-        <div className="px-6 py-2">{children}</div>
+        <div className="min-w-0 px-6 py-2">{children}</div>
       </DialogContent>
     </Dialog>
   )

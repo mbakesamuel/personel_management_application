@@ -717,12 +717,12 @@ export function PersonnelChildTableDialog({
             </Table>
           </div>
 
-          <div className="flex w-28 shrink-0 flex-col gap-2">
+          <div className="flex w-36 shrink-0 flex-col gap-2">
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="justify-start"
+              className="w-full justify-start"
               disabled={
                 loading ||
                 (config.id === 'employments' && rows.length > 0)
@@ -736,7 +736,7 @@ export function PersonnelChildTableDialog({
               type="button"
               size="sm"
               variant="outline"
-              className="justify-start"
+              className="w-full justify-start"
               disabled={
                 loading ||
                 !selectedRow ||
@@ -754,7 +754,7 @@ export function PersonnelChildTableDialog({
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="justify-start"
+                  className="w-full justify-start"
                   disabled={
                     loading ||
                     !selectedRow ||
@@ -771,7 +771,7 @@ export function PersonnelChildTableDialog({
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="justify-start"
+                  className="w-full justify-start"
                   disabled={
                     loading ||
                     !selectedRow ||
@@ -789,7 +789,7 @@ export function PersonnelChildTableDialog({
             <Button
               type="button"
               size="sm"
-              className="mt-auto justify-start"
+              className="mt-auto w-full justify-start"
               onClick={() => onOpenChange(false)}
             >
               <X className="size-4" />

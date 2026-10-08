@@ -33,6 +33,7 @@ import {
   FormDialogRow,
 } from './form-dialog'
 import { PersonnelChildTableDialog } from './personnel/PersonnelChildTableDialog'
+import { PersonnelSanctionsDialog } from './personnel/PersonnelSanctionsDialog'
 import {
   PERSONNEL_CHILD_TABLES,
   type PersonnelChildTableConfig,
@@ -249,6 +250,7 @@ export function PersonnelConsole({
     useState<EmployeeOption | null>(null)
   const [childTable, setChildTable] =
     useState<PersonnelChildTableConfig | null>(null)
+  const [sanctionsOpen, setSanctionsOpen] = useState(false)
 
   const [reviewAction, setReviewAction] = useState<{
     kind: 'validate' | 'reject'
@@ -620,7 +622,7 @@ export function PersonnelConsole({
                   className={cn(
                     'grid h-full min-h-0 flex-1 gap-3 overflow-hidden [grid-auto-rows:minmax(0,1fr)]',
                     'grid-cols-2',
-                    childTableGridCols(PERSONNEL_CHILD_TABLES.length) === 3
+                    childTableGridCols(PERSONNEL_CHILD_TABLES.length + 1) === 3
                       ? 'md:grid-cols-3'
                       : 'md:grid-cols-4',
                   )}
@@ -638,6 +640,16 @@ export function PersonnelConsole({
                       </span>
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    className="flex min-h-0 flex-col items-start justify-center gap-1 rounded-xl border bg-card px-3 py-2 text-left shadow-xs transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    onClick={() => setSanctionsOpen(true)}
+                  >
+                    <span className="text-sm font-medium">Sanctions</span>
+                    <span className="text-xs leading-snug text-muted-foreground">
+                      Memos, supporting documents, and sanctions.
+                    </span>
+                  </button>
                 </div>
               </div>
             ) : (
@@ -1048,6 +1060,15 @@ export function PersonnelConsole({
           cancelDisabled={loading}
         />
       </FormDialog>
+
+      {selectedEmployee ? (
+        <PersonnelSanctionsDialog
+          open={sanctionsOpen}
+          onOpenChange={setSanctionsOpen}
+          employee={selectedEmployee}
+          currentUser={currentUser}
+        />
+      ) : null}
 
       {selectedEmployee ? (
         <PersonnelChildTableDialog

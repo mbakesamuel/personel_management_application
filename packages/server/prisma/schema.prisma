@@ -54,6 +54,16 @@ model tbl_employee {
   nationalities tbl_emp_nat_iden[]
   allowanceAllocation tbl_allowance_allocation[]
   fleetRegistrations fleetRegistration[]
+  employeeMemos tbl_employee_memo[]
+  employeeSanctions tbl_employee_sanction[]
+
+  leaveRequests tbl_leave_request[]
+  leaveCalculations tbl_leave_calculation[]
+  leaveHistories tbl_employee_leave_history[]
+  leaveResumptions tbl_leave_resumption[]
+  permissionRequests tbl_permission_request[]
+  permissionAccount tbl_permission_account?
+
 
   active         Boolean                       @default(true)
   currentUnitId  String?
@@ -378,6 +388,88 @@ model tbl_emp_class {
   @@index([workflowStatus])
 }
 
+//saction specific models.
+model tbl_memo_type {
+id Int @id @default(autoincrement())
+code String @unique
+name String 
+memos tbl_employee_memo[]
+}
+
+model tbl_employee_memo {
+id Int @id @default(autoincrement())
+
+matricule String
+employee tbl_employee @relation(fields: [matricule], references: [matricule])
+memoTypeId Int
+memoType tbl_memo_type @relation(fields: [memoTypeId], references: [id])
+memoNumber String? @unique
+memoDate DateTime
+subject String
+details String? @db.Text
+incidentDate DateTime?
+effectiveDate DateTime?
+workflowStatus tbl_personnel_workflow_status @default(PENDING)
+current Boolean @default(true)
+createdAt DateTime @default(now())
+createdById Int
+updatedAt DateTime @updatedAt
+updatedById Int?
+validatedAt DateTime?
+validatedById Int?
+rejectedAt DateTime?
+rejectedById Int?
+reviewNote String?
+attachments tbl_employee_memo_attachment[]
+sanctions tbl_employee_sanction[]
+
+@@index([matricule])
+@@index([memoTypeId])
+@@index([memoDate])
+}
+
+model tbl_employee_memo_attachment {
+id Int @id @default(autoincrement())
+memoId Int
+memo tbl_employee_memo @relation(fields: [memoId], references: [id])
+fileName String
+originalName String
+filePath String
+uploadedAt DateTime @default(now())
+uploadedById Int
+remarks String?
+
+@@index([memoId])
+}
+
+model tbl_employee_sanction {
+id Int @id @default(autoincrement())
+matricule String
+employee tbl_employee @relation(fields: [matricule], references: [matricule])
+memoId Int?
+memo tbl_employee_memo? @relation(fields: [memoId], references: [id])
+sanctionId Int
+sanction tbl_sanction @relation(fields: [sanctionId], references: [id])
+reason String? @db.Text
+startDate DateTime?
+endDate DateTime?
+active Boolean @default(true)
+workflowStatus tbl_personnel_workflow_status @default(PENDING)
+createdAt DateTime @default(now())
+createdById Int
+updatedAt DateTime @updatedAt
+updatedById Int?
+validatedAt DateTime?
+validatedById Int?
+rejectedAt DateTime?
+rejectedById Int?
+reviewNote String?
+
+@@index([matricule])
+@@index([sanctionId])
+@@index([active])
+}
+
 
 model tbl_designation {
   id          Int     @id @default(autoincrement())
@@ -440,8 +532,9 @@ model tbl_religion{
 }
 
 model tbl_sanction{
-  id          String    @id
+  id          Int    @id @default(autoincrement())
   sanctionName String
+  employeeSanctions tbl_employee_sanction[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -662,6 +755,7 @@ model tbl_roles {
   can_financial_years  Boolean @default(false)
   can_organization         Boolean @default(false)
   can_personnel            Boolean @default(false)
+  can_leave                Boolean @default(false)
   can_allowances           Boolean @default(false)
   can_allowance_types      Boolean @default(false)
   can_allowance_catalog    Boolean @default(false)
@@ -1124,3 +1218,303 @@ model DashboardGroupRole {
   @@map("tbl_dashboardGroupRole")
 }
 
+//leave management specific models.
+enum LeaveCalculationMethod {
+  METHOD_1
+  METHOD_2
+}
+
+// MASTER TABLES
+
+model tbl_leave_type {
+  id                    Int      @id @default(autoincrement())
+  code                  String   @unique
+  name                  String
+  requireAttachment     Boolean  @default(false)
+  carryForwardAllowed   Boolean  @default(false)
+  active                Boolean  @default(true)
+  leaveRequests         tbl_leave_request[]
+}
+
+model tbl_leave_calculation_policy {
+  id                Int @id @default(autoincrement())
+  code              String @unique
+  name              String
+  method            LeaveCalculationMethod
+  effectiveFrom     DateTime
+  effectiveTo       DateTime?
+  active            Boolean @default(false)
+  description       String?
+  createdAt         DateTime @default(now())
+  calculations      tbl_leave_calculation[]
+}
+
+
+// METHOD 1 RULE
+// e.g. 18 statutory leave days
+model tbl_leave_entitlement_rule {
+  id              Int @id @default(autoincrement())
+  annualDays      Decimal @db.Decimal(8,2)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  active          Boolean @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+}
+
+// METHOD 2 RULE
+// e.g. 1.5 days per month
+model tbl_leave_monthly_rate_rule {
+  id              Int @id @default(autoincrement())
+  monthlyDays     Decimal @db.Decimal(8,4)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  active          Boolean @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+}
+
+// SENIORITY RULES
+model tbl_leave_seniority_rule {
+  id              Int @id @default(autoincrement())
+  minYears        Int
+  maxYears        Int?
+  bonusDays       Decimal @db.Decimal(8,2)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  active          Boolean @default(true)
+  createdAt       DateTime @default(now())
+}
+
+// LEAVE TRAVEL ALLOWANCE
+model tbl_leave_travel_allowance {
+  id            Int       @id @default(autoincrement())
+  minCategory   Int
+  maxCategory   Int
+  amount        Int
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+}
+
+// LEAVE APPLICATION
+model tbl_leave_request {
+  id                  Int @id @default(autoincrement())
+  leaveRef            String? @unique
+  matricule           String
+  employee            tbl_employee @relation(fields: [matricule], references: [matricule])
+
+  leaveTypeId         Int
+  leaveType           tbl_leave_type @relation(fields: [leaveTypeId], references: [id])
+  applicationDate     DateTime @default(now())
+  startDate           DateTime
+  endDate             DateTime?
+  reason              String? @db.Text
+  workflowStatus      tbl_personnel_workflow_status @default(PENDING)
+  current             Boolean @default(true)
+  createdAt           DateTime @default(now())
+  createdById         Int
+  updatedAt           DateTime @updatedAt
+  updatedById         Int?
+  validatedAt         DateTime?
+  validatedById       Int?
+  rejectedAt          DateTime?
+  rejectedById        Int?
+  reviewNote          String?
+  attachments         tbl_leave_attachment[]
+  calculations        tbl_leave_calculation[]
+  grants              tbl_leave_grant[]
+  resumptions         tbl_leave_resumption[]
+  memo                tbl_leave_memo?
+  permissionLedger    tbl_permission_ledger[]
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+// UPLOADED DOCUMENTS
+model tbl_leave_attachment {
+  id                Int @id @default(autoincrement())
+  leaveRequestId    Int
+  leaveRequest      tbl_leave_request @relation(fields: [leaveRequestId], references: [id])
+  fileName          String
+  originalName      String
+  filePath          String
+  uploadedById      Int
+  uploadedAt        DateTime @default(now())
+}
+
+
+// CALCULATION SNAPSHOT
+model tbl_leave_calculation {
+  id                  Int @id @default(autoincrement())
+  matricule           String
+  employee            tbl_employee @relation(fields: [matricule], references: [matricule])
+  leaveRequestId      Int
+  leaveRequest        tbl_leave_request @relation(fields: [leaveRequestId], references: [id])
+  policyId            Int
+  policy              tbl_leave_calculation_policy @relation(fields: [policyId], references: [id])
+  accrualStartDate    DateTime
+  accrualEndDate      DateTime
+  serviceYears        Decimal @db.Decimal(8,2)
+  eligibleMonths      Decimal @db.Decimal(8,2)
+  basicDays           Decimal @db.Decimal(8,2)
+  seniorityDays       Decimal @db.Decimal(8,2)
+  monthlyAccrual      Decimal @db.Decimal(8,4)
+  entitledDays        Decimal @db.Decimal(8,2)
+  calculatedAt        DateTime @default(now())
+  grant               tbl_leave_grant?
+
+  @@index([matricule])
+}
+
+// LEAVE GRANT
+// Official approval
+model tbl_leave_grant {
+  id                    Int @id @default(autoincrement())
+  leaveRequestId        Int @unique
+  leaveRequest          tbl_leave_request @relation(fields: [leaveRequestId], references: [id])
+  calculationId         Int @unique
+  calculation           tbl_leave_calculation @relation(fields: [calculationId], references: [id])
+  grantedDays           Decimal @db.Decimal(8,2)
+  leaveStartDate        DateTime
+  leaveEndDate          DateTime
+  expectedReturnDate    DateTime
+  grantedAt             DateTime @default(now())
+  grantedById           Int
+  history               tbl_employee_leave_history?
+}
+
+// LEAVE HISTORY
+// Used for future calculations
+
+model tbl_employee_leave_history {
+  id                  Int @id @default(autoincrement())
+  matricule           String
+  employee            tbl_employee @relation(fields: [matricule], references: [matricule])
+  leaveGrantId        Int @unique
+  leaveGrant          tbl_leave_grant @relation(fields: [leaveGrantId], references: [id])
+  leaveStartDate      DateTime
+  leaveEndDate        DateTime
+  resumedDate         DateTime?
+  daysGranted         Decimal @db.Decimal(8,2)
+  createdAt           DateTime @default(now())
+  @@index([matricule])
+}
+
+// RESUMPTION
+
+model tbl_leave_resumption {
+  id                  Int @id @default(autoincrement())
+  matricule           String
+  employee            tbl_employee @relation(fields: [matricule], references: [matricule])
+  leaveRequestId      Int
+  leaveRequest        tbl_leave_request @relation(fields: [leaveRequestId], references: [id])
+  actualReturnDate    DateTime
+  remarks             String?
+  resumedAt           DateTime @default(now())
+  resumedById         Int
+
+  @@index([matricule])
+}
+
+model tbl_public_holiday {
+  id     Int     @id @default(autoincrement())
+  month  Int
+  day    Int
+  name   String  @db.VarChar(120)
+  active Boolean @default(true)
+
+  @@unique([month, day])
+}
+
+model tbl_leave_letter_setting {
+  id                    Int     @id @default(1)
+  saturdayWorking       Boolean @default(true)
+  delegationPreface     String @default("For the Director, Human Resources And By Delegation") @db.VarChar(255)
+  delegationName        String @default("Obase Divine Nakeli") @db.VarChar(120)
+  delegationTitle       String @default("Manager Human Resources Dev't Service") @db.VarChar(160)
+  signCategory9         String @default("DIRECTOR, HUMAN RESOURCES") @db.VarChar(160)
+  ccBelow               String @default("FIN.D\nMHRDS\nAO (HRD)") @db.VarChar(500)
+  ccCategory9           String @default("FIN.D\nDTS\nMHRDS\nAg. HRO (TSD)") @db.VarChar(500)
+}
+
+model tbl_permission_request {
+  id              Int      @id @default(autoincrement())
+  matricule       String
+  employee        tbl_employee @relation(fields: [matricule], references: [matricule])
+  days            Int
+  applicationDate DateTime
+  reason          String?  @db.Text
+  workflowStatus  tbl_personnel_workflow_status @default(PENDING)
+  current         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  createdById     Int
+  updatedAt       DateTime @updatedAt
+  updatedById     Int?
+  validatedAt     DateTime?
+  validatedById   Int?
+  rejectedAt      DateTime?
+  rejectedById    Int?
+  reviewNote      String?
+  ledger          tbl_permission_ledger?
+
+  @@index([matricule])
+  @@index([workflowStatus])
+}
+
+model tbl_permission_account {
+  matricule    String   @id
+  employee     tbl_employee @relation(fields: [matricule], references: [matricule])
+  balanceDays  Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  entries      tbl_permission_ledger[]
+}
+
+enum PermissionLedgerKind {
+  CREDIT
+  DEBIT
+}
+
+model tbl_permission_ledger {
+  id                   Int      @id @default(autoincrement())
+  matricule            String
+  account              tbl_permission_account @relation(fields: [matricule], references: [matricule])
+  days                 Int
+  kind                 PermissionLedgerKind
+  permissionRequestId  Int?     @unique
+  permissionRequest    tbl_permission_request? @relation(fields: [permissionRequestId], references: [id])
+  leaveRequestId       Int?     @unique
+  leaveRequest         tbl_leave_request? @relation(fields: [leaveRequestId], references: [id])
+  note                 String?  @db.VarChar(191)
+  createdAt            DateTime @default(now())
+  createdById          Int
+
+  @@index([matricule])
+}
+
+model tbl_leave_memo {
+  id                 Int      @id @default(autoincrement())
+  leaveRequestId     Int      @unique
+  leaveRequest       tbl_leave_request @relation(fields: [leaveRequestId], references: [id])
+  template           String   @db.VarChar(40)
+  memoRef            String   @db.VarChar(40)
+  memoDate           DateTime
+  entitledDays       Int
+  permissionDays     Int
+  netDays            Int
+  travelAllowance    Int
+  accrualStartDate   DateTime?
+  accrualEndDate     DateTime?
+  employeeName       String   @db.VarChar(191)
+  designation        String?  @db.VarChar(191)
+  fromTitle          String   @db.VarChar(120)
+  throTitle          String   @db.VarChar(120)
+  signatoryPreface   String?  @db.VarChar(255)
+  signatoryName      String?  @db.VarChar(120)
+  signatoryTitle     String   @db.VarChar(160)
+  ccText             String   @db.VarChar(500)
+  html               String   @db.LongText
+  createdAt          DateTime @default(now())
+}
