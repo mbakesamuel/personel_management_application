@@ -57,6 +57,7 @@ export const RolePermissionsSchema = z.object({
   canOrganization: z.boolean(),
   canPersonnel: z.boolean(),
   canLeave: z.boolean(),
+  canLeaveValidate: z.boolean(),
   canAllowances: z.boolean(),
   canAllowanceTypes: z.boolean(),
   canAllowanceCatalog: z.boolean(),
@@ -88,6 +89,7 @@ export const RoleDefinitionSchema = z.object({
   canOrganization: z.boolean(),
   canPersonnel: z.boolean(),
   canLeave: z.boolean(),
+  canLeaveValidate: z.boolean(),
   canAllowances: z.boolean(),
   canAllowanceTypes: z.boolean(),
   canAllowanceCatalog: z.boolean(),
@@ -117,6 +119,7 @@ export const RoleUpdateSchema = z.object({
   canOrganization: z.boolean(),
   canPersonnel: z.boolean(),
   canLeave: z.boolean(),
+  canLeaveValidate: z.boolean(),
   canAllowances: z.boolean(),
   canAllowanceTypes: z.boolean(),
   canAllowanceCatalog: z.boolean(),
@@ -885,6 +888,11 @@ export const PublicHolidayCreateSchema = PublicHolidayFieldsSchema.refine(
 )
 export const PublicHolidayUpdateSchema = PublicHolidayFieldsSchema.partial()
 
+export const LeaveMotherSettingSchema = z.object({
+  daysPerChild: z.number().int().min(0),
+  maxAgeYears: z.number().int().min(0),
+})
+
 export const LeaveLetterSettingSchema = z.object({
   saturdayWorking: z.boolean(),
   delegationPreface: z.string().trim().min(1).max(255),
@@ -1068,6 +1076,7 @@ export type PermissionRequestUpdateInput = z.infer<
 >
 export type PublicHolidayCreateInput = z.infer<typeof PublicHolidayCreateSchema>
 export type PublicHolidayUpdateInput = z.infer<typeof PublicHolidayUpdateSchema>
+export type LeaveMotherSettingInput = z.infer<typeof LeaveMotherSettingSchema>
 export type LeaveLetterSettingInput = z.infer<typeof LeaveLetterSettingSchema>
 export type LeaveResumptionCreateInput = z.infer<
   typeof LeaveResumptionCreateSchema

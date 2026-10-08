@@ -30,6 +30,7 @@ export async function mapDbUser(row: {
       canOrganization: def.canOrganization,
       canPersonnel: def.canPersonnel,
       canLeave: def.canLeave,
+      canLeaveValidate: def.canLeaveValidate,
       canAllowances: def.canAllowances,
       canAllowanceTypes: def.canAllowanceTypes,
       canAllowanceCatalog: def.canAllowanceCatalog,

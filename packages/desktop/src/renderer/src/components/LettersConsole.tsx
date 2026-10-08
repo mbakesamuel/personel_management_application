@@ -1,11 +1,15 @@
-import type {
-  AppraisalLetter,
-  AppraisalLettersResponse,
-  FinancialYear,
-  SectionOption,
-  SkippedAppraisalLetter,
-  UnitOption,
-  User,
+import {
+  MEMO_DOCUMENT_TITLE,
+  MEMO_LETTERHEAD_CSS,
+  MEMO_ORGANISATION,
+  memoAddressGridHtml,
+  type AppraisalLetter,
+  type AppraisalLettersResponse,
+  type FinancialYear,
+  type SectionOption,
+  type SkippedAppraisalLetter,
+  type UnitOption,
+  type User,
 } from "@personel-management-app/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createApiClient } from "../api/client";
@@ -65,21 +69,17 @@ function buildPrintHtml(letters: AppraisalLetter[]): string {
       return `
       <article class="memo-page">
         <header class="center">
-          <div class="org">CAMEROON DEVELOPMENT CORPORATION</div>
+          <div class="org">${MEMO_ORGANISATION}</div>
           <img class="logo" src="${LOGO_DATA_URI}" alt="" />
-          <div class="doc-title">INTER-DEPARTMENTAL MEMO</div>
+          <div class="doc-title">${MEMO_DOCUMENT_TITLE}</div>
         </header>
-        <div class="grid">
-          <div class="left">
-            <div class="cell top"><strong>FROM: ${escapeHtml(letter.fromTitle)}</strong></div>
-            <div class="cell">${escapeHtml(letter.unitName ?? "—")}</div>
-          </div>
-          <div class="right">
-            <div class="cell top">To: <strong>${escapeHtml(letter.names ?? letter.matric)}</strong></div>
-            <div class="cell">${escapeHtml(letter.designationLine || "—")}</div>
-            <div class="cell">Thro' ${escapeHtml(letter.throTitle ?? "HEAD OF SECTION")}</div>
-          </div>
-        </div>
+        ${memoAddressGridHtml({
+          fromTitle: letter.fromTitle,
+          unitName: letter.unitName,
+          toName: letter.names ?? letter.matric,
+          designation: letter.designationLine,
+          throTitle: letter.throTitle,
+        })}
         <div class="meta">
           <div>
             <div class="confidential">CONFIDENTIAL</div>
@@ -114,16 +114,8 @@ function buildPrintHtml(letters: AppraisalLetter[]): string {
     }
     .memo-page { page-break-after: always; font-size: 14pt; line-height: 1.5; }
     .memo-page:last-child { page-break-after: auto; }
-    .center { text-align: center; }
-    .org { font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; font-size: 14pt; line-height: 1.5; }
+    ${MEMO_LETTERHEAD_CSS}
     .logo { display: block; margin: 4px auto; height: 56px; object-fit: contain; }
-    .doc-title { margin-top: 4px; font-weight: 700; text-transform: uppercase; text-decoration: underline; font-size: 14pt; line-height: 1.5; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 2px solid #000; border-bottom: 2px solid #000; margin-top: 16px; font-size: 14pt; line-height: 1.5; }
-    .left { border-right: 1px solid #000; }
-    .cell { padding: 6px 8px; border-bottom: 1px solid #000; text-transform: uppercase; }
-    .cell.top { font-weight: 600; }
-    .right .cell:last-child { border-bottom: none; text-transform: none; }
-    .left .cell:last-child { border-bottom: none; }
     .meta { display: flex; justify-content: space-between; margin-top: 12px; font-size: 14pt; line-height: 1.5; }
     .meta sup { font-size: 0.7em; }
     .confidential, .matric { font-weight: 700; text-decoration: underline; }

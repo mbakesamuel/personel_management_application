@@ -8,6 +8,7 @@ import type {
   LeaveEntitlementCreateInput,
   LeaveEntitlementUpdateInput,
   LeaveLetterSettingInput,
+  LeaveMotherSettingInput,
   LeaveMonthlyRateCreateInput,
   LeaveMonthlyRateUpdateInput,
   LeavePolicyCreateInput,
@@ -118,6 +119,43 @@ function completedYears(start: Date, end: Date): number {
   return Math.max(0, years)
 }
 
+async function mothersLeaveFor(matricule: string, applicationDate: Date) {
+  const [employee, settings] = await Promise.all([
+    prisma.tbl_employee.findUnique({
+      where: { matricule },
+      select: { sex: true },
+    }),
+    prisma.tbl_leave_mother_setting.upsert({
+      where: { id: 1 },
+      create: { id: 1 },
+      update: {},
+    }),
+  ])
+  if (
+    employee?.sex !== 'Female' ||
+    settings.daysPerChild <= 0 ||
+    settings.maxAgeYears <= 0
+  ) {
+    return { qualifyingChildCount: 0, mothersLeaveDays: 0 }
+  }
+  const children = await prisma.tbl_emp_family_member.findMany({
+    where: {
+      matricule,
+      relationship: 'CHILD',
+      workflowStatus: 'VALIDATED',
+      current: true,
+    },
+    select: { dateOfBirth: true },
+  })
+  const qualifyingChildCount = children.filter(
+    (child) => completedYears(child.dateOfBirth, applicationDate) < settings.maxAgeYears,
+  ).length
+  return {
+    qualifyingChildCount,
+    mothersLeaveDays: settings.daysPerChild * qualifyingChildCount,
+  }
+}
+
 function completedMonths(start: Date, end: Date): number {
   let months =
     (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
@@ -171,6 +209,8 @@ function mapCalculation(row: RequestRow['calculations'][number]) {
     seniorityDays: num(row.seniorityDays),
     monthlyAccrual: num(row.monthlyAccrual),
     entitledDays: num(row.entitledDays),
+    qualifyingChildCount: row.qualifyingChildCount,
+    mothersLeaveDays: row.mothersLeaveDays,
     calculatedAt: row.calculatedAt,
   }
 }
@@ -603,6 +643,22 @@ export const leaveSetupService = {
       return { id }
     },
   },
+  motherSettings: {
+    async get() {
+      return prisma.tbl_leave_mother_setting.upsert({
+        where: { id: 1 },
+        create: { id: 1 },
+        update: {},
+      })
+    },
+    async update(input: LeaveMotherSettingInput) {
+      return prisma.tbl_leave_mother_setting.upsert({
+        where: { id: 1 },
+        create: { id: 1, ...input },
+        update: input,
+      })
+    },
+  },
   letterSettings: {
     async get() {
       return prisma.tbl_leave_letter_setting.upsert({
@@ -800,6 +856,7 @@ export const leaveRequestService = {
       monthlyAccrual = monthlyRate.plus(seniorityDays.div(12))
     }
     const entitledDays = monthlyAccrual.mul(eligibleMonths)
+    const mothersLeave = await mothersLeaveFor(request.matricule, applicationDate)
     if (request.calculations.length > 0) {
       await prisma.tbl_leave_calculation.deleteMany({
         where: { id: { in: request.calculations.map((row) => row.id) } },
@@ -818,6 +875,8 @@ export const leaveRequestService = {
         seniorityDays: money(seniorityDays, 2),
         monthlyAccrual: money(monthlyAccrual, 4),
         entitledDays: entitledDays.ceil(),
+        qualifyingChildCount: mothersLeave.qualifyingChildCount,
+        mothersLeaveDays: mothersLeave.mothersLeaveDays,
       },
     })
     return this.get(id)
@@ -846,8 +905,10 @@ export const leaveRequestService = {
         409,
       )
     }
-    const entitledDays = roundUp(Number(snapshot.entitledDays))
-    if (entitledDays < 1) {
+    const earnedDays = roundUp(Number(snapshot.entitledDays))
+    const mothersLeaveDays = snapshot.mothersLeaveDays
+    const dueDays = earnedDays + mothersLeaveDays
+    if (dueDays < 1) {
       throw new PersonnelWorkflowError(
         'Leave due rounds to no working days',
         400,
@@ -856,7 +917,9 @@ export const leaveRequestService = {
     await prisma.$transaction(async (tx) => {
       const prepared = await prepareLeaveMemo(tx, {
         matricule: row.matricule,
-        entitledDays,
+        earnedDays,
+        mothersLeaveDays,
+        qualifyingChildCount: snapshot.qualifyingChildCount,
         startDate: row.startDate,
         accrualStartDate: snapshot.accrualStartDate,
         accrualEndDate: snapshot.accrualEndDate,
@@ -1099,20 +1162,23 @@ async function prepareLeaveMemo(
   tx: Prisma.TransactionClient,
   input: {
     matricule: string
-    entitledDays: number
+    earnedDays: number
+    mothersLeaveDays: number
+    qualifyingChildCount: number
     startDate: Date
     accrualStartDate: Date
     accrualEndDate: Date
     memoRef: string
   },
 ): Promise<LeaveMemoModel & { html: string }> {
+  const dueDays = input.earnedDays + input.mothersLeaveDays
   const account = await tx.tbl_permission_account.findUnique({
     where: { matricule: input.matricule },
     select: { balanceDays: true },
   })
   const balance = account?.balanceDays ?? 0
-  const permissionDays = Math.min(balance, input.entitledDays)
-  const netDays = input.entitledDays - permissionDays
+  const permissionDays = Math.min(balance, dueDays)
+  const netDays = dueDays - permissionDays
   if (netDays < 1) {
     throw new PersonnelWorkflowError(
       'Permission days cover the whole leave due. Nothing is left to grant',
@@ -1167,6 +1233,7 @@ async function prepareLeaveMemo(
           if (!row?.currentUnitId) {
             return {
               unitId: null as string | null,
+              unitName: null as string | null,
               groupId: null as string | null,
               sectionId: null as number | null,
             }
@@ -1174,7 +1241,7 @@ async function prepareLeaveMemo(
           const [unit, section] = await Promise.all([
             tx.tbl_unit.findUnique({
               where: { id: row.currentUnitId },
-              select: { groupid: true },
+              select: { groupid: true, unit_name: true },
             }),
             tx.tbl_section.findFirst({
               where: { tbl_unit_id: row.currentUnitId },
@@ -1184,6 +1251,7 @@ async function prepareLeaveMemo(
           ])
           return {
             unitId: row.currentUnitId,
+            unitName: unit?.unit_name ?? null,
             groupId: unit?.groupid ?? null,
             sectionId: section?.id ?? null,
           }
@@ -1244,13 +1312,17 @@ async function prepareLeaveMemo(
     template,
     memoRef: input.memoRef,
     memoDate,
-    entitledDays: input.entitledDays,
+    earnedDays: input.earnedDays,
+    mothersLeaveDays: input.mothersLeaveDays,
+    qualifyingChildCount: input.qualifyingChildCount,
+    entitledDays: dueDays,
     permissionDays,
     netDays,
     travelAllowance: travel.amount,
     accrualStartDate: input.accrualStartDate,
     accrualEndDate: input.accrualEndDate,
     employeeName: titled,
+    unitName: placement.unitName,
     designation,
     matricule: input.matricule,
     startDate: input.startDate,

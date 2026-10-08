@@ -68,7 +68,7 @@ export function PermissionsConsole({ currentUser, onClose }: PermissionsConsoleP
   const [reviewNote, setReviewNote] = useState('')
 
   const selected = requests.find((row) => row.id === selectedId) ?? null
-  const canReview = currentUser.permissions.canValidate
+  const canReview = currentUser.permissions.canLeaveValidate
   const editable =
     selected?.workflowStatus === 'PENDING' || selected?.workflowStatus === 'REJECTED'
 

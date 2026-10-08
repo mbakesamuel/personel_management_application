@@ -756,6 +756,7 @@ model tbl_roles {
   can_organization         Boolean @default(false)
   can_personnel            Boolean @default(false)
   can_leave                Boolean @default(false)
+  can_leave_validate       Boolean @default(false)
   can_allowances           Boolean @default(false)
   can_allowance_types      Boolean @default(false)
   can_allowance_catalog    Boolean @default(false)
@@ -1363,6 +1364,8 @@ model tbl_leave_calculation {
   seniorityDays       Decimal @db.Decimal(8,2)
   monthlyAccrual      Decimal @db.Decimal(8,4)
   entitledDays        Decimal @db.Decimal(8,2)
+  qualifyingChildCount Int @default(0)
+  mothersLeaveDays    Int @default(0)
   calculatedAt        DateTime @default(now())
   grant               tbl_leave_grant?
 
@@ -1427,6 +1430,12 @@ model tbl_public_holiday {
   active Boolean @default(true)
 
   @@unique([month, day])
+}
+
+model tbl_leave_mother_setting {
+  id           Int @id @default(1)
+  daysPerChild Int @default(0)
+  maxAgeYears  Int @default(0)
 }
 
 model tbl_leave_letter_setting {

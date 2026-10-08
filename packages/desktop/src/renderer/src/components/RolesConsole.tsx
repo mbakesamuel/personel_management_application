@@ -49,6 +49,7 @@ type FormState = {
   canOrganization: boolean
   canPersonnel: boolean
   canLeave: boolean
+  canLeaveValidate: boolean
   canAllowances: boolean
   canAllowanceTypes: boolean
   canAllowanceCatalog: boolean
@@ -78,6 +79,7 @@ const PERMISSION_FIELDS = [
   ['canOrganization', 'Organization'],
   ['canPersonnel', 'Personnel'],
   ['canLeave', 'Leave'],
+  ['canLeaveValidate', 'Validate leave'],
   ['canAllowances', 'Allowances module'],
   ['canAllowanceTypes', 'Allowance types'],
   ['canAllowanceCatalog', 'Allowance catalog'],
@@ -109,6 +111,7 @@ function emptyForm(defaultJurisdiction = 'section'): FormState {
     canOrganization: false,
     canPersonnel: false,
     canLeave: false,
+    canLeaveValidate: false,
     canAllowances: false,
     canAllowanceTypes: false,
     canAllowanceCatalog: false,
@@ -138,6 +141,7 @@ function permissionsSummary(role: RoleDefinition): string {
   if (role.canOrganization) flags.push('Org')
   if (role.canPersonnel) flags.push('Personnel')
   if (role.canLeave) flags.push('Leave')
+  if (role.canLeaveValidate) flags.push('Validate leave')
   if (role.canAllowances) flags.push('Allowances')
   if (role.canAllowanceTypes) flags.push('Types')
   if (role.canAllowanceCatalog) flags.push('Catalog')
@@ -299,6 +303,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
       canOrganization: row.canOrganization,
       canPersonnel: row.canPersonnel,
       canLeave: row.canLeave,
+      canLeaveValidate: row.canLeaveValidate,
       canAllowances: row.canAllowances,
       canAllowanceTypes: row.canAllowanceTypes,
       canAllowanceCatalog: row.canAllowanceCatalog,
@@ -337,6 +342,7 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
         canOrganization: form.canOrganization,
         canPersonnel: form.canPersonnel,
         canLeave: form.canLeave,
+        canLeaveValidate: form.canLeaveValidate,
         canAllowances: form.canAllowances,
         canAllowanceTypes: form.canAllowanceTypes,
         canAllowanceCatalog: form.canAllowanceCatalog,

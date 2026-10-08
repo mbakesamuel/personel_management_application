@@ -83,6 +83,12 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
   const [entitlements, setEntitlements] = useState<EntitlementRow[]>([])
   const [rates, setRates] = useState<RateRow[]>([])
   const [bands, setBands] = useState<SeniorityRow[]>([])
+  const [motherForm, setMotherForm] = useState({
+    daysPerChild: '0',
+    maxAgeYears: '0',
+  })
+  const [motherSaving, setMotherSaving] = useState(false)
+  const [motherStatus, setMotherStatus] = useState<string | null>(null)
   const [open, setOpen] = useState<
     'type' | 'policy' | 'entitlement' | 'rate' | 'seniority' | null
   >(null)
@@ -124,13 +130,14 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
     setStatus(null)
     try {
       const client = await createApiClient()
-      const [typeRes, policyRes, entitlementRes, rateRes, bandRes] =
+      const [typeRes, policyRes, entitlementRes, rateRes, bandRes, motherRes] =
         await Promise.all([
           client.leave.types.$get(),
           client.leave.policies.$get(),
           client.leave['entitlement-rules'].$get(),
           client.leave['monthly-rate-rules'].$get(),
           client.leave['seniority-rules'].$get(),
+          client.leave['mother-settings'].$get(),
         ])
       if (!typeRes.ok) throw new Error(await readError(typeRes, 'Failed to load types'))
       if (!policyRes.ok) throw new Error(await readError(policyRes, 'Failed to load policies'))
@@ -139,6 +146,17 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
       }
       if (!rateRes.ok) throw new Error(await readError(rateRes, 'Failed to load rates'))
       if (!bandRes.ok) throw new Error(await readError(bandRes, 'Failed to load seniority'))
+      if (!motherRes.ok) {
+        throw new Error(await readError(motherRes, "Failed to load mother's leave"))
+      }
+      const mother = (await motherRes.json()) as {
+        daysPerChild: number
+        maxAgeYears: number
+      }
+      setMotherForm({
+        daysPerChild: String(mother.daysPerChild),
+        maxAgeYears: String(mother.maxAgeYears),
+      })
       setTypes((await typeRes.json()) as TypeRow[])
       setPolicies((await policyRes.json()) as PolicyRow[])
       setEntitlements((await entitlementRes.json()) as EntitlementRow[])
@@ -152,6 +170,40 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  async function saveMother() {
+    setMotherSaving(true)
+    setMotherStatus(null)
+    try {
+      const daysPerChild = Number(motherForm.daysPerChild)
+      const maxAgeYears = Number(motherForm.maxAgeYears)
+      if (
+        !Number.isInteger(daysPerChild) ||
+        daysPerChild < 0 ||
+        !Number.isInteger(maxAgeYears) ||
+        maxAgeYears < 0
+      ) {
+        throw new Error('Days per child and age limit must be whole numbers of 0 or more')
+      }
+      const client = await createApiClient()
+      const res = await client.leave['mother-settings'].$put({
+        json: { daysPerChild, maxAgeYears },
+      })
+      if (!res.ok) throw new Error(await readError(res, 'Save failed'))
+      const saved = (await res.json()) as {
+        daysPerChild: number
+        maxAgeYears: number
+      }
+      setMotherForm({
+        daysPerChild: String(saved.daysPerChild),
+        maxAgeYears: String(saved.maxAgeYears),
+      })
+    } catch (err) {
+      setMotherStatus(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMotherSaving(false)
+    }
+  }
 
   async function save() {
     setSaving(true)
@@ -407,6 +459,58 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
           }}
         />
       </Section>
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium">Mother&apos;s leave</h2>
+        <p className="text-sm text-muted-foreground">
+          Female personnel receive this many days for each validated child who
+          has not yet completed the age limit on the application date.
+        </p>
+        <form
+          className="flex flex-wrap items-end gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void saveMother()
+          }}
+        >
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Days per child (m)</span>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              value={motherForm.daysPerChild}
+              onChange={(event) =>
+                setMotherForm((prev) => ({
+                  ...prev,
+                  daysPerChild: event.target.value,
+                }))
+              }
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Age limit in years (n)</span>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              value={motherForm.maxAgeYears}
+              onChange={(event) =>
+                setMotherForm((prev) => ({
+                  ...prev,
+                  maxAgeYears: event.target.value,
+                }))
+              }
+            />
+          </label>
+          <Button type="submit" size="sm" disabled={motherSaving}>
+            {motherSaving ? 'Saving…' : 'Save'}
+          </Button>
+        </form>
+        {motherStatus ? (
+          <p className="text-sm text-destructive">{motherStatus}</p>
+        ) : null}
+      </section>
 
       <LeaveLetterPanel />
 

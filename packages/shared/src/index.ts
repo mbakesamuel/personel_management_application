@@ -159,7 +159,13 @@ export {
   awardIncludesFinanceCc,
   isFinanceLetterCc,
   filterLetterCcForAward,
+  MEMO_ORGANISATION,
+  MEMO_DOCUMENT_TITLE,
+  MEMO_LETTERHEAD_CSS,
+  memoAddressGridHtml,
+  memoLetterheadHtml,
 } from './letters.js'
+export type { MemoLetterheadInput } from './letters.js'
 export {
   RoleSchema,
   RoleScopeSchema,
@@ -269,6 +275,7 @@ export {
   PermissionRequestUpdateSchema,
   PublicHolidayCreateSchema,
   PublicHolidayUpdateSchema,
+  LeaveMotherSettingSchema,
   LeaveLetterSettingSchema,
   DashboardGroupKindSchema,
   DashboardGroupCreateSchema,
@@ -369,6 +376,7 @@ export type {
   PermissionRequestUpdateInput,
   PublicHolidayCreateInput,
   PublicHolidayUpdateInput,
+  LeaveMotherSettingInput,
   LeaveLetterSettingInput,
   DashboardGroupCreateInput,
   DashboardGroupAssignmentsInput,

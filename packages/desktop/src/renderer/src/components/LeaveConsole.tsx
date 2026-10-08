@@ -1,4 +1,5 @@
 import type { User, WorkflowStatus } from "@personel-management-app/shared";
+import { Download, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createApiClient } from "../api/client";
 import {
@@ -37,12 +38,19 @@ type LeaveType = { id: number; code: string; name: string; active: boolean };
 type Attachment = { id: number; originalName: string };
 type Calculation = {
   entitledDays: number | null;
+  mothersLeaveDays: number | null;
+  qualifyingChildCount: number | null;
   serviceYears: number | null;
   eligibleMonths: number | null;
   basicDays: number | null;
   seniorityDays: number | null;
   monthlyAccrual: number | null;
 };
+
+function combinedDue(snapshot: Calculation | undefined) {
+  if (!snapshot || snapshot.entitledDays == null) return null;
+  return snapshot.entitledDays + (snapshot.mothersLeaveDays ?? 0);
+}
 type LeaveRequest = {
   id: number;
   matricule: string;
@@ -71,6 +79,29 @@ type HistoryRow = {
 
 function day(value: string | null | undefined) {
   return value ? value.slice(0, 10) : "—";
+}
+
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+};
+
+function imageType(name: string) {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return IMAGE_TYPES[ext] ?? null;
+}
+
+function saveBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 async function readError(res: Response, fallback: string) {
@@ -106,10 +137,14 @@ export function LeaveConsole({ currentUser, onClose }: LeaveConsoleProps) {
   const [reviewNote, setReviewNote] = useState("");
   const [memoRef, setMemoRef] = useState("");
   const [returnDate, setReturnDate] = useState("");
+  const [preview, setPreview] = useState<{ name: string; url: string } | null>(
+    null,
+  );
   const fileRef = useRef<HTMLInputElement>(null);
+  const previewUrl = useRef<string | null>(null);
 
   const selected = requests.find((row) => row.id === selectedId) ?? null;
-  const canReview = currentUser.permissions.canValidate;
+  const canReview = currentUser.permissions.canLeaveValidate;
   const snapshot = selected?.calculations[0];
   const editable =
     selected?.workflowStatus === "PENDING" ||
@@ -228,32 +263,75 @@ export function LeaveConsole({ currentUser, onClose }: LeaveConsoleProps) {
     }
   }
 
-  async function download(attachmentId: number, name: string) {
+  const closePreview = useCallback(() => {
+    if (previewUrl.current) {
+      URL.revokeObjectURL(previewUrl.current);
+      previewUrl.current = null;
+    }
+    setPreview(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!preview) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      closePreview();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [preview, closePreview]);
+
+  function showPreview(name: string, url: string) {
+    if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+    previewUrl.current = url;
+    setPreview({ name, url });
+  }
+
+  async function fetchAttachment(attachmentId: number) {
+    if (!selected) throw new Error("No leave selected");
+    const config = await window.api.getServerConfig();
+    if (!config.serverUrl) throw new Error("Server URL is not set");
+    const headers: Record<string, string> = {
+      "x-user-id": String(currentUser.id),
+    };
+    if (config.authToken) headers.Authorization = `Bearer ${config.authToken}`;
+    const res = await fetch(
+      `${config.serverUrl.replace(/\/$/, "")}/leave/requests/${selected.id}/attachments/${attachmentId}`,
+      { headers },
+    );
+    if (!res.ok) throw new Error(await readError(res, "Download failed"));
+    return res.blob();
+  }
+
+  async function openAttachment(file: Attachment) {
     if (!selected) return;
     setStatus(null);
     try {
-      const config = await window.api.getServerConfig();
-      if (!config.serverUrl) throw new Error("Server URL is not set");
-      const headers: Record<string, string> = {
-        "x-user-id": String(currentUser.id),
-      };
-      if (config.authToken)
-        headers.Authorization = `Bearer ${config.authToken}`;
-      const res = await fetch(
-        `${config.serverUrl.replace(/\/$/, "")}/leave/requests/${selected.id}/attachments/${attachmentId}`,
-        { headers },
-      );
-      if (!res.ok) throw new Error(await readError(res, "Download failed"));
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = name;
-      link.click();
-      URL.revokeObjectURL(url);
+      const blob = await fetchAttachment(file.id);
+      const type = imageType(file.originalName);
+      if (type) {
+        const image = new Blob([await blob.arrayBuffer()], { type });
+        showPreview(file.originalName, URL.createObjectURL(image));
+        return;
+      }
+      saveBlob(blob, file.originalName);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  function downloadPreview() {
+    if (!preview) return;
+    const link = document.createElement("a");
+    link.href = preview.url;
+    link.download = preview.name;
+    link.click();
   }
 
   async function removeAttachment(attachmentId: number) {
@@ -372,6 +450,7 @@ export function LeaveConsole({ currentUser, onClose }: LeaveConsoleProps) {
   }
 
   return (
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
@@ -459,7 +538,7 @@ export function LeaveConsole({ currentUser, onClose }: LeaveConsoleProps) {
                   <TableCell>{day(row.startDate)}</TableCell>
                   <TableCell>{day(row.endDate)}</TableCell>
                   <TableCell>
-                    {row.calculations[0]?.entitledDays ?? "—"}
+                    {combinedDue(row.calculations[0]) ?? "—"}
                   </TableCell>
                   <TableCell>{row.workflowStatus}</TableCell>
                 </TableRow>
@@ -569,7 +648,10 @@ export function LeaveConsole({ currentUser, onClose }: LeaveConsoleProps) {
                 Service years {snapshot.serviceYears} · Eligible months{" "}
                 {snapshot.eligibleMonths} · Basic {snapshot.basicDays} ·
                 Seniority {snapshot.seniorityDays} · Monthly{" "}
-                {snapshot.monthlyAccrual} · Due {snapshot.entitledDays}
+                {snapshot.monthlyAccrual} · Earned {snapshot.entitledDays} ·
+                Mother&apos;s {snapshot.mothersLeaveDays ?? 0} (
+                {snapshot.qualifyingChildCount ?? 0} children) · Due{" "}
+                {combinedDue(snapshot)}
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -585,7 +667,7 @@ export function LeaveConsole({ currentUser, onClose }: LeaveConsoleProps) {
                     <button
                       type="button"
                       className="text-left underline"
-                      onClick={() => void download(file.id, file.originalName)}
+                      onClick={() => void openAttachment(file)}
                     >
                       {file.originalName}
                     </button>
@@ -783,6 +865,36 @@ export function LeaveConsole({ currentUser, onClose }: LeaveConsoleProps) {
           cancelDisabled={loading}
         />
       </FormDialog>
+    </div>
+      {preview ? (
+        <div className="absolute inset-0 z-20 flex flex-col bg-background p-3">
+          <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
+            <h2 className="m-0 truncate text-lg font-semibold">{preview.name}</h2>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" onClick={downloadPreview}>
+                <Download className="size-4" />
+                Download
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={closePreview}
+              >
+                <X className="size-4" />
+                Close
+              </Button>
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-muted/40">
+            <img
+              src={preview.url}
+              alt={preview.name}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+        </div>
+      ) : null}
       {memoHtml ? (
         <LetterPdfOverlay
           html={memoHtml}

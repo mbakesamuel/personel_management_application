@@ -4,6 +4,7 @@ import {
   LeaveEntitlementCreateSchema,
   LeaveEntitlementUpdateSchema,
   LeaveLetterSettingSchema,
+  LeaveMotherSettingSchema,
   LeaveProcessSchema,
   LeaveMonthlyRateCreateSchema,
   LeaveMonthlyRateUpdateSchema,
@@ -223,6 +224,17 @@ export const leave = new Hono<{ Variables: AppVariables }>()
         ),
       ),
   )
+  .get('/mother-settings', async (c) =>
+    handle(c, () => leaveSetupService.motherSettings.get()),
+  )
+  .put(
+    '/mother-settings',
+    zValidator('json', LeaveMotherSettingSchema),
+    async (c) =>
+      handle(c, () =>
+        leaveSetupService.motherSettings.update(c.req.valid('json')),
+      ),
+  )
   .get('/letter-settings', async (c) =>
     handle(c, () => leaveSetupService.letterSettings.get()),
   )
@@ -284,7 +296,7 @@ export const leave = new Hono<{ Variables: AppVariables }>()
   )
   .post('/requests/:id/validate', zValidator('param', IdParam), async (c) =>
     handle(c, async () => {
-      await requirePermission(c.get('currentUser'), 'canValidate')
+      await requirePermission(c.get('currentUser'), 'canLeaveValidate')
       const id = c.req.valid('param').id
       const existing = await leaveRequestService.get(id)
       await assertEmployeeInScope(c.get('currentUser'), existing.matricule)
@@ -306,7 +318,7 @@ export const leave = new Hono<{ Variables: AppVariables }>()
   )
   .post('/requests/:id/reject', zValidator('param', IdParam), async (c) =>
     handle(c, async () => {
-      await requirePermission(c.get('currentUser'), 'canValidate')
+      await requirePermission(c.get('currentUser'), 'canLeaveValidate')
       const id = c.req.valid('param').id
       const existing = await leaveRequestService.get(id)
       await assertEmployeeInScope(c.get('currentUser'), existing.matricule)

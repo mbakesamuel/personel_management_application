@@ -1,3 +1,5 @@
+import { MEMO_LETTERHEAD_CSS, memoLetterheadHtml } from '@personel-management-app/shared'
+
 const ONES = [
   'zero',
   'one',
@@ -151,6 +153,9 @@ export type LeaveMemoModel = {
   template: 'BELOW_NONE' | 'BELOW_PERMISSION' | 'CATEGORY_9'
   memoRef: string
   memoDate: Date
+  earnedDays: number
+  mothersLeaveDays: number
+  qualifyingChildCount: number
   entitledDays: number
   permissionDays: number
   netDays: number
@@ -158,6 +163,7 @@ export type LeaveMemoModel = {
   accrualStartDate: Date | null
   accrualEndDate: Date | null
   employeeName: string
+  unitName: string | null
   designation: string | null
   matricule: string
   startDate: Date
@@ -190,10 +196,13 @@ function ccLines(text: string, extra?: string | null): string {
 
 export function buildLeaveMemoHtml(memo: LeaveMemoModel): string {
   const designation = memo.designation?.trim()
-  const toBlock = `
-    <div class="to-name">${escapeHtml(memo.employeeName)}</div>
-    ${designation ? `<div class="to-role">(${escapeHtml(designation)})</div>` : ''}
-    <div>Thro' ${escapeHtml(memo.throTitle)}</div>`
+  const letterhead = memoLetterheadHtml({
+    fromTitle: memo.fromTitle,
+    unitName: memo.unitName,
+    toName: memo.employeeName,
+    designation: memo.designation,
+    throTitle: memo.throTitle,
+  })
   const cc =
     memo.template === 'BELOW_NONE'
       ? ccLines(memo.ccText, designation)
@@ -221,10 +230,7 @@ export function buildLeaveMemoHtml(memo: LeaveMemoModel): string {
   <style>
     @page { size: A4; margin: 16mm; }
     body { font-family: "Times New Roman", Times, serif; font-size: 12pt; color: #000; margin: 0; }
-    .from-to { display: flex; justify-content: space-between; gap: 24px; }
-    .to { text-align: right; }
-    .to-name { font-weight: 700; }
-    .to-role { font-size: 10pt; }
+    ${MEMO_LETTERHEAD_CSS}
     .meta { display: flex; justify-content: space-between; margin-top: 28px; }
     .ref { font-weight: 700; }
     h1 { text-align: center; text-decoration: underline; font-size: 14pt; margin: 22px 0; }
@@ -239,10 +245,7 @@ export function buildLeaveMemoHtml(memo: LeaveMemoModel): string {
   </style>
 </head>
 <body>
-  <div class="from-to">
-    <div>${escapeHtml(memo.fromTitle)}</div>
-    <div class="to">${toBlock}</div>
-  </div>
+  ${letterhead}
   <div class="meta">
     <div>
       <div class="ref">${escapeHtml(memo.memoRef)}</div>
@@ -263,7 +266,7 @@ function belowBody(memo: LeaveMemoModel): string {
   const span = `from ${slashDate(memo.startDate)} to ${slashDate(memo.endDate)} and you will resume duty on ${slashDate(memo.resumeDate)}`
   const permission =
     memo.template === 'BELOW_PERMISSION'
-      ? `<p>You are due <strong>${daysPhrase(memo.entitledDays)}</strong> annual leave days. However, permissions/absences in the course of duty taken by you amounts to <strong>${memo.permissionDays} days</strong> (${memo.permissionDays} approved permissions / no unauthorized absence).</p>
+      ? `<p>You are due <strong>${daysPhrase(memo.earnedDays + memo.mothersLeaveDays)}</strong> annual leave days. However, permissions/absences in the course of duty taken by you amounts to <strong>${memo.permissionDays} days</strong> (${memo.permissionDays} approved permissions / no unauthorized absence).</p>
          <p>You are now due <strong>${daysPhrase(memo.netDays)}</strong> working days leave ${span}.</p>`
       : `<p>You are due <strong>${daysPhrase(memo.netDays)}</strong> working days leave ${span}.</p>`
   return `<p>We are pleased to inform you that your application for annual leave has been approved.</p>
@@ -283,10 +286,15 @@ function categoryBody(memo: LeaveMemoModel): string {
     <strong>END:</strong> ${slashDate(memo.endDate)}<br/>
     <strong>RESUME:</strong> ${slashDate(memo.resumeDate)}</p>
     <table>
-      ${row(`1) Leave earned from ${earned}`, String(memo.entitledDays))}
+      ${row(`1) Leave earned from ${earned}`, String(memo.earnedDays))}
       ${row('2) Amount of leave accrued last tour', 'NIL')}
-      ${row("3) Mother's leave: (No. of children)", 'NIL')}
-      ${row('4) Total leave due (1 + 2 + 3)', String(memo.entitledDays))}
+      ${row(
+        memo.mothersLeaveDays > 0
+          ? `3) Mother's leave: (No. of children: ${memo.qualifyingChildCount})`
+          : "3) Mother's leave: (No. of children)",
+        memo.mothersLeaveDays > 0 ? String(memo.mothersLeaveDays) : 'NIL',
+      )}
+      ${row('4) Total leave due (1 + 2 + 3)', String(memo.earnedDays + memo.mothersLeaveDays))}
       ${row('5) Less Permission / Absence', String(memo.permissionDays))}
       ${row('6) Total leave due', String(memo.netDays))}
       ${row('7) Leave to be taken now', String(memo.netDays))}

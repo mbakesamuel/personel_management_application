@@ -144,7 +144,7 @@ export const permissions = new Hono<{ Variables: AppVariables }>()
   )
   .post('/requests/:id/validate', zValidator('param', IdParam), async (c) =>
     handle(c, async () => {
-      await requirePermission(c.get('currentUser'), 'canValidate')
+      await requirePermission(c.get('currentUser'), 'canLeaveValidate')
       const id = c.req.valid('param').id
       const existing = await permissionService.get(id)
       await assertEmployeeInScope(c.get('currentUser'), existing.matricule)
@@ -158,7 +158,7 @@ export const permissions = new Hono<{ Variables: AppVariables }>()
   )
   .post('/requests/:id/reject', zValidator('param', IdParam), async (c) =>
     handle(c, async () => {
-      await requirePermission(c.get('currentUser'), 'canValidate')
+      await requirePermission(c.get('currentUser'), 'canLeaveValidate')
       const id = c.req.valid('param').id
       const existing = await permissionService.get(id)
       await assertEmployeeInScope(c.get('currentUser'), existing.matricule)
