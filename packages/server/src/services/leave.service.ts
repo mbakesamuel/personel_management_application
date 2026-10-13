@@ -3,16 +3,22 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Prisma } from '@prisma/client'
-import { parseCatEchCode } from '@personel-management-app/shared'
+import {
+  isAnnualLeaveType,
+  leaveMemoFileRef,
+  parseCatEchCode,
+} from '@personel-management-app/shared'
 import type {
   LeaveEntitlementCreateInput,
   LeaveEntitlementUpdateInput,
   LeaveLetterSettingInput,
   LeaveMotherSettingInput,
+  LeaveProcessingSettingInput,
   LeaveMonthlyRateCreateInput,
   LeaveMonthlyRateUpdateInput,
   LeavePolicyCreateInput,
   LeavePolicyUpdateInput,
+  LeaveAccrualAdjustInput,
   LeaveProcessInput,
   LeaveRequestCreateInput,
   LeaveRequestUpdateInput,
@@ -21,6 +27,9 @@ import type {
   LeaveSeniorityUpdateInput,
   LeaveTravelAllowanceCreateInput,
   LeaveTravelAllowanceUpdateInput,
+  PermissionDurationCreateInput,
+  PermissionDurationUpdateInput,
+  LeaveDocumentRequirementReplaceInput,
   LeaveTypeCreateInput,
   LeaveTypeUpdateInput,
   PublicHolidayCreateInput,
@@ -42,15 +51,18 @@ import {
   rejectStamps,
   validateStamps,
 } from './personnel-workflow.js'
+import { buildLeaveCalculationReportHtml } from './leave-calculation-report.js'
 import {
+  addUtcDays,
   buildLeaveMemoHtml,
   resumptionDate,
   roundUp,
   workingEndDate,
   type LeaveMemoModel,
 } from './leave-memo.js'
-import { resolveDecisionSignatory } from './decision.service.js'
-import { resolveSectionThroTitle } from './section-thro.service.js'
+import { resolveOfficialMemoSignatory } from './official-memo.service.js'
+import { resolveLiveEmployee } from './live-employee.service.js'
+import { resolveMemoThroTitle } from './section-thro.service.js'
 
 const attachmentDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -59,7 +71,11 @@ const attachmentDir = path.resolve(
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
 
 const requestInclude = {
-  leaveType: true,
+  leaveType: {
+    include: {
+      documentRequirements: { orderBy: { sortOrder: 'asc' as const } },
+    },
+  },
   attachments: { orderBy: { id: 'asc' as const } },
   calculations: { orderBy: { calculatedAt: 'desc' as const } },
   grants: true,
@@ -102,7 +118,7 @@ function blankToNull(value: string | null | undefined): string | null {
   return trimmed || null
 }
 
-function effectiveOn(on: Date) {
+export function effectiveOn(on: Date) {
   return {
     active: true,
     effectiveFrom: { lte: on },
@@ -110,7 +126,83 @@ function effectiveOn(on: Date) {
   }
 }
 
-function completedYears(start: Date, end: Date): number {
+const OPEN_ENDED = new Date('9999-12-31T00:00:00.000Z')
+
+function rangesOverlap(
+  leftFrom: Date,
+  leftTo: Date | null,
+  rightFrom: Date,
+  rightTo: Date | null,
+) {
+  const leftEnd = leftTo ?? OPEN_ENDED
+  const rightEnd = rightTo ?? OPEN_ENDED
+  return leftFrom.getTime() <= rightEnd.getTime() && rightFrom.getTime() <= leftEnd.getTime()
+}
+
+export async function resolvePermissionDuration(leaveTypeId: number, asOf: Date) {
+  return prisma.tbl_permission_duration_rule.findFirst({
+    where: { leaveTypeId, ...effectiveOn(asOf) },
+    orderBy: { effectiveFrom: 'desc' },
+  })
+}
+
+async function requirePaidPermissionType(leaveTypeId: number) {
+  const type = await prisma.tbl_leave_type.findUnique({ where: { id: leaveTypeId } })
+  if (!type || type.category !== 'PERMISSION' || !type.isPaid) {
+    throw new PersonnelWorkflowError(
+      'Eligible days apply only to a paid permission',
+      400,
+    )
+  }
+  return type
+}
+
+function assertDurationRange(effectiveFrom: Date, effectiveTo: Date | null) {
+  if (effectiveTo && effectiveTo.getTime() < effectiveFrom.getTime()) {
+    throw new PersonnelWorkflowError(
+      'The end date cannot be before the effective date',
+      400,
+    )
+  }
+}
+
+async function assertDurationClear(
+  leaveTypeId: number,
+  effectiveFrom: Date,
+  effectiveTo: Date | null,
+  exceptId?: number,
+) {
+  const rows = await prisma.tbl_permission_duration_rule.findMany({
+    where: {
+      leaveTypeId,
+      ...(exceptId == null ? {} : { id: { not: exceptId } }),
+    },
+  })
+  const clash = rows.find((row) =>
+    rangesOverlap(effectiveFrom, effectiveTo, row.effectiveFrom, row.effectiveTo),
+  )
+  if (clash) {
+    throw new PersonnelWorkflowError(
+      'This period overlaps another eligible-days rule for the same permission',
+      400,
+    )
+  }
+}
+
+function utcDay(value: Date): string {
+  return value.toISOString().slice(0, 10)
+}
+
+function close(left: number, right: number): boolean {
+  return Math.abs(left - right) < 0.001
+}
+
+function figure(value: number): string {
+  const rounded = Math.round(value * 10000) / 10000
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded)
+}
+
+export function completedYears(start: Date, end: Date): number {
   let years = end.getUTCFullYear() - start.getUTCFullYear()
   const month = end.getUTCMonth() - start.getUTCMonth()
   if (month < 0 || (month === 0 && end.getUTCDate() < start.getUTCDate())) {
@@ -156,12 +248,54 @@ async function mothersLeaveFor(matricule: string, applicationDate: Date) {
   }
 }
 
-function completedMonths(start: Date, end: Date): number {
+export function completedMonths(start: Date, end: Date): number {
   let months =
     (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
     (end.getUTCMonth() - start.getUTCMonth())
   if (end.getUTCDate() < start.getUTCDate()) months -= 1
   return Math.max(0, months)
+}
+
+export function leaveAccrualStart(input: {
+  leaveEndDate: Date | null
+  resumedDate: Date | null
+  dateEng: Date
+  supplyLastResumption: boolean
+}): Date {
+  if (input.leaveEndDate) return input.leaveEndDate
+  if (input.supplyLastResumption && input.resumedDate) return input.resumedDate
+  return input.dateEng
+}
+
+export function annualLeaveAccrual(input: {
+  method: 'METHOD_1' | 'METHOD_2'
+  annualDays: Prisma.Decimal | number | null
+  monthlyDays: Prisma.Decimal | number | null
+  seniorityBonusDays: Prisma.Decimal | number
+  eligibleMonths: number
+}): {
+  basicDays: Prisma.Decimal
+  seniorityDays: Prisma.Decimal
+  monthlyAccrual: Prisma.Decimal
+  earnedDays: Prisma.Decimal
+} {
+  const seniorityDays = new Prisma.Decimal(input.seniorityBonusDays)
+  let basicDays: Prisma.Decimal
+  let monthlyAccrual: Prisma.Decimal
+  if (input.method === 'METHOD_1') {
+    basicDays = new Prisma.Decimal(input.annualDays ?? 0)
+    monthlyAccrual = basicDays.plus(seniorityDays).div(12)
+  } else {
+    const monthlyRate = new Prisma.Decimal(input.monthlyDays ?? 0)
+    basicDays = monthlyRate.mul(12)
+    monthlyAccrual = monthlyRate.plus(seniorityDays.div(12))
+  }
+  return {
+    basicDays,
+    seniorityDays,
+    monthlyAccrual,
+    earnedDays: monthlyAccrual.mul(input.eligibleMonths).ceil(),
+  }
 }
 
 function addDays(date: Date, days: number): Date {
@@ -192,6 +326,7 @@ function mapAttachment(row: RequestRow['attachments'][number]) {
     originalName: row.originalName,
     uploadedAt: row.uploadedAt,
     uploadedById: row.uploadedById,
+    requirementId: row.requirementId,
   }
 }
 
@@ -226,6 +361,7 @@ function mapRequest(row: RequestRow) {
     startDate: row.startDate,
     endDate: row.endDate,
     reason: row.reason,
+    suppliedResumedDate: row.suppliedResumedDate,
     workflowStatus: row.workflowStatus,
     current: row.current,
     createdAt: row.createdAt,
@@ -271,6 +407,22 @@ function safeExt(name: string) {
   return ext.length > 1 && ext.length <= 10 ? ext : ''
 }
 
+async function requireLeaveType(leaveTypeId: number) {
+  const leaveType = await prisma.tbl_leave_type.findUnique({
+    where: { id: leaveTypeId },
+  })
+  if (!leaveType || !leaveType.active) {
+    throw new PersonnelWorkflowError('Unknown leave type', 400)
+  }
+  if (leaveType.category === 'PERMISSION') {
+    throw new PersonnelWorkflowError(
+      'Permission types are requested under Permission requests',
+      400,
+    )
+  }
+  return leaveType
+}
+
 async function requireEmployee(matricule: string) {
   const employee = await prisma.tbl_employee.findUnique({
     where: { matricule },
@@ -285,7 +437,14 @@ async function requireEmployee(matricule: string) {
 
 export const leaveSetupService = {
   types: {
-    list: () => prisma.tbl_leave_type.findMany({ orderBy: { code: 'asc' } }),
+    list: () =>
+      prisma.tbl_leave_type.findMany({
+        orderBy: { code: 'asc' },
+        include: {
+          documentRequirements: { orderBy: { sortOrder: 'asc' } },
+          durationRules: { orderBy: { effectiveFrom: 'desc' } },
+        },
+      }),
     async create(input: LeaveTypeCreateInput) {
       return withPrisma(() =>
         prisma.tbl_leave_type.create({
@@ -295,6 +454,12 @@ export const leaveSetupService = {
             requireAttachment: input.requireAttachment ?? false,
             carryForwardAllowed: input.carryForwardAllowed ?? false,
             active: input.active ?? true,
+            category: input.category ?? 'LEAVE',
+            isPaid: input.isPaid ?? true,
+            deductBalance: input.deductBalance ?? false,
+            maxDays: input.maxDays ?? null,
+            durationUnit: input.durationUnit ?? 'WORKING_DAYS',
+            description: blankToNull(input.description),
           },
         }),
       )
@@ -315,9 +480,61 @@ export const leaveSetupService = {
               ? { carryForwardAllowed: input.carryForwardAllowed }
               : {}),
             ...(input.active !== undefined ? { active: input.active } : {}),
+            ...(input.category !== undefined ? { category: input.category } : {}),
+            ...(input.isPaid !== undefined ? { isPaid: input.isPaid } : {}),
+            ...(input.deductBalance !== undefined
+              ? { deductBalance: input.deductBalance }
+              : {}),
+            ...(input.maxDays !== undefined ? { maxDays: input.maxDays } : {}),
+            ...(input.durationUnit !== undefined
+              ? { durationUnit: input.durationUnit }
+              : {}),
+            ...(input.description !== undefined
+              ? { description: blankToNull(input.description) }
+              : {}),
           },
         }),
       )
+    },
+  },
+  documentRequirements: {
+    async replace(leaveTypeId: number, input: LeaveDocumentRequirementReplaceInput) {
+      const type = await prisma.tbl_leave_type.findUnique({
+        where: { id: leaveTypeId },
+        select: { id: true },
+      })
+      if (!type) throw new PersonnelNotFoundError('Leave type not found')
+      const names = input.names.map((name) => name.trim()).filter(Boolean)
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.tbl_leave_document_requirement.findMany({
+          where: { leaveTypeId },
+          orderBy: { sortOrder: 'asc' },
+        })
+        for (let index = 0; index < names.length; index += 1) {
+          const row = existing[index]
+          const name = names[index]!
+          if (row) {
+            await tx.tbl_leave_document_requirement.update({
+              where: { id: row.id },
+              data: { name, sortOrder: index },
+            })
+          } else {
+            await tx.tbl_leave_document_requirement.create({
+              data: { leaveTypeId, name, sortOrder: index },
+            })
+          }
+        }
+        const removed = existing.slice(names.length)
+        if (removed.length > 0) {
+          await tx.tbl_leave_document_requirement.deleteMany({
+            where: { id: { in: removed.map((row) => row.id) } },
+          })
+        }
+      })
+      return prisma.tbl_leave_document_requirement.findMany({
+        where: { leaveTypeId },
+        orderBy: { sortOrder: 'asc' },
+      })
     },
   },
   policies: {
@@ -601,6 +818,71 @@ export const leaveSetupService = {
       )
     },
   },
+  permissionDurations: {
+    async list(leaveTypeId?: number) {
+      return prisma.tbl_permission_duration_rule.findMany({
+        where: leaveTypeId == null ? {} : { leaveTypeId },
+        orderBy: [{ leaveTypeId: 'asc' }, { effectiveFrom: 'desc' }],
+      })
+    },
+    async create(input: PermissionDurationCreateInput) {
+      await requirePaidPermissionType(input.leaveTypeId)
+      const effectiveFrom = parseDate(input.effectiveFrom, 'effectiveFrom')
+      const effectiveTo = parseOptionalDate(input.effectiveTo, 'effectiveTo') ?? null
+      assertDurationRange(effectiveFrom, effectiveTo)
+      await assertDurationClear(input.leaveTypeId, effectiveFrom, effectiveTo)
+      return withPrisma(() =>
+        prisma.tbl_permission_duration_rule.create({
+          data: {
+            leaveTypeId: input.leaveTypeId,
+            days: input.days,
+            effectiveFrom,
+            effectiveTo,
+            active: input.active ?? true,
+          },
+        }),
+      )
+    },
+    async update(id: number, input: PermissionDurationUpdateInput) {
+      const existing = await prisma.tbl_permission_duration_rule.findUnique({
+        where: { id },
+      })
+      if (!existing) {
+        throw new PersonnelNotFoundError('Permission duration rule not found')
+      }
+      const effectiveFrom =
+        input.effectiveFrom !== undefined
+          ? parseDate(input.effectiveFrom, 'effectiveFrom')
+          : existing.effectiveFrom
+      const effectiveTo =
+        input.effectiveTo !== undefined
+          ? (parseOptionalDate(input.effectiveTo, 'effectiveTo') ?? null)
+          : existing.effectiveTo
+      assertDurationRange(effectiveFrom, effectiveTo)
+      await assertDurationClear(existing.leaveTypeId, effectiveFrom, effectiveTo, id)
+      return withPrisma(() =>
+        prisma.tbl_permission_duration_rule.update({
+          where: { id },
+          data: {
+            ...(input.days !== undefined ? { days: input.days } : {}),
+            ...(input.effectiveFrom !== undefined ? { effectiveFrom } : {}),
+            ...(input.effectiveTo !== undefined ? { effectiveTo } : {}),
+            ...(input.active !== undefined ? { active: input.active } : {}),
+          },
+        }),
+      )
+    },
+    async remove(id: number) {
+      const existing = await prisma.tbl_permission_duration_rule.findUnique({
+        where: { id },
+      })
+      if (!existing) {
+        throw new PersonnelNotFoundError('Permission duration rule not found')
+      }
+      await prisma.tbl_permission_duration_rule.delete({ where: { id } })
+      return { id }
+    },
+  },
   holidays: {
     async list() {
       return prisma.tbl_public_holiday.findMany({
@@ -643,6 +925,22 @@ export const leaveSetupService = {
       return { id }
     },
   },
+  processingSettings: {
+    async get() {
+      return prisma.tbl_leave_processing_setting.upsert({
+        where: { id: 1 },
+        create: { id: 1 },
+        update: {},
+      })
+    },
+    async update(input: LeaveProcessingSettingInput) {
+      return prisma.tbl_leave_processing_setting.upsert({
+        where: { id: 1 },
+        create: { id: 1, ...input },
+        update: input,
+      })
+    },
+  },
   motherSettings: {
     async get() {
       return prisma.tbl_leave_mother_setting.upsert({
@@ -677,6 +975,14 @@ export const leaveSetupService = {
   },
 }
 
+async function acceptedSuppliedResumedDate(
+  value: string | null | undefined,
+): Promise<Date | null | undefined> {
+  const setting = await leaveSetupService.processingSettings.get()
+  if (!setting.userSupplyLastResumption) return undefined
+  return parseOptionalDate(value, 'suppliedResumedDate')
+}
+
 export const leaveRequestService = {
   async list(query: { matricule?: string; matricules?: string[] | null }) {
     const rows = await prisma.tbl_leave_request.findMany({
@@ -699,14 +1005,74 @@ export const leaveRequestService = {
     if (!row) throw new PersonnelNotFoundError('Leave request not found')
     return mapRequest(row)
   },
+  async absenceReport(query: { matricule?: string; matricules?: string[] | null }) {
+    if (query.matricules && query.matricules.length === 0) return []
+    const where = {
+      ...(query.matricule ? { matricule: query.matricule } : {}),
+      ...(query.matricules ? { matricule: { in: query.matricules } } : {}),
+    }
+    const [leaves, permissions] = await Promise.all([
+      prisma.tbl_leave_request.findMany({
+        where,
+        include: { leaveType: true, grants: true },
+        orderBy: [{ applicationDate: 'desc' }, { id: 'desc' }],
+      }),
+      prisma.tbl_permission_request.findMany({
+        where,
+        include: { leaveType: true },
+        orderBy: [{ applicationDate: 'desc' }, { id: 'desc' }],
+      }),
+    ])
+    const rows = [
+      ...leaves.map((row) => {
+        const granted = row.grants[0]?.grantedDays
+        const days =
+          granted != null
+            ? Number(granted)
+            : row.leaveType.deductBalance || row.leaveType.maxDays == null
+              ? null
+              : row.leaveType.durationUnit === 'CALENDAR_WEEKS'
+                ? row.leaveType.maxDays * 7
+                : row.leaveType.maxDays
+        return {
+          source: 'LEAVE' as const,
+          id: row.id,
+          matricule: row.matricule,
+          typeName: row.leaveType.name,
+          paid: row.leaveType.isPaid,
+          applicationDate: row.applicationDate,
+          startDate: row.startDate,
+          endDate: row.endDate,
+          days,
+          status: row.workflowStatus,
+        }
+      }),
+      ...permissions.map((row) => ({
+        source: 'PERMISSION' as const,
+        id: row.id,
+        matricule: row.matricule,
+        typeName: row.leaveType?.name ?? 'Permission',
+        paid: row.leaveType?.isPaid ?? null,
+        applicationDate: row.applicationDate,
+        startDate: row.applicationDate,
+        endDate: null,
+        days: row.days,
+        status: row.workflowStatus,
+      })),
+    ]
+    rows.sort((left, right) => {
+      const byDate = right.applicationDate.getTime() - left.applicationDate.getTime()
+      if (byDate !== 0) return byDate
+      return right.id - left.id
+    })
+    return rows
+  },
   async create(userId: number, input: LeaveRequestCreateInput) {
     await requireEmployee(input.matricule)
-    const leaveType = await prisma.tbl_leave_type.findUnique({
-      where: { id: input.leaveTypeId },
-    })
-    if (!leaveType || !leaveType.active) {
-      throw new PersonnelWorkflowError('Unknown leave type', 400)
-    }
+    await requireLeaveType(input.leaveTypeId)
+    const suppliedResumedDate = await acceptedSuppliedResumedDate(
+      input.suppliedResumedDate,
+    )
     return withPrisma(async () => {
       const row = await prisma.tbl_leave_request.create({
         data: {
@@ -715,6 +1081,7 @@ export const leaveRequestService = {
           applicationDate: parseDate(input.applicationDate, 'applicationDate'),
           startDate: parseDate(input.startDate, 'startDate'),
           reason: blankToNull(input.reason),
+          ...(suppliedResumedDate !== undefined ? { suppliedResumedDate } : {}),
           current: false,
           ...pendingCreateStamps(userId),
         },
@@ -727,6 +1094,12 @@ export const leaveRequestService = {
     const existing = await prisma.tbl_leave_request.findUnique({ where: { id } })
     if (!existing) throw new PersonnelNotFoundError('Leave request not found')
     await assertCanEdit(userId, existing.workflowStatus)
+    if (input.leaveTypeId !== undefined) {
+      await requireLeaveType(input.leaveTypeId)
+    }
+    const suppliedResumedDate = await acceptedSuppliedResumedDate(
+      input.suppliedResumedDate,
+    )
     return withPrisma(async () => {
       const row = await prisma.tbl_leave_request.update({
         where: { id },
@@ -748,6 +1121,7 @@ export const leaveRequestService = {
           ...(input.reason !== undefined
             ? { reason: blankToNull(input.reason) }
             : {}),
+          ...(suppliedResumedDate !== undefined ? { suppliedResumedDate } : {}),
           ...editStamps(userId, existing.workflowStatus),
         },
         include: requestInclude,
@@ -761,6 +1135,16 @@ export const leaveRequestService = {
       include: { calculations: { where: { grant: null } } },
     })
     if (!request) throw new PersonnelNotFoundError('Leave request not found')
+    const leaveType = await prisma.tbl_leave_type.findUnique({
+      where: { id: request.leaveTypeId },
+      select: { deductBalance: true, name: true },
+    })
+    if (!isAnnualLeaveType(leaveType)) {
+      throw new PersonnelWorkflowError(
+        'This leave type has a fixed duration. Validate it without calculating annual leave.',
+        409,
+      )
+    }
     if (
       request.workflowStatus !== 'PENDING' &&
       request.workflowStatus !== 'REJECTED'
@@ -790,7 +1174,15 @@ export const leaveRequestService = {
       orderBy: { leaveEndDate: 'desc' },
       select: { leaveEndDate: true },
     })
-    const accrualStart = history?.leaveEndDate ?? employment.dateEng
+    const supplyLastResumption = (
+      await leaveSetupService.processingSettings.get()
+    ).userSupplyLastResumption
+    const accrualStart = leaveAccrualStart({
+      leaveEndDate: history?.leaveEndDate ?? null,
+      resumedDate: request.suppliedResumedDate,
+      dateEng: employment.dateEng,
+      supplyLastResumption,
+    })
     if (applicationDate < accrualStart) {
       throw new PersonnelWorkflowError(
         'Application date is before the accrual start',
@@ -823,9 +1215,8 @@ export const leaveRequestService = {
         400,
       )
     }
-    const seniorityDays = new Prisma.Decimal(seniority.bonusDays)
-    let basicDays: Prisma.Decimal
-    let monthlyAccrual: Prisma.Decimal
+    let annualDays: Prisma.Decimal | null = null
+    let monthlyDays: Prisma.Decimal | null = null
     if (policy.method === 'METHOD_1') {
       const entitlement = await prisma.tbl_leave_entitlement_rule.findFirst({
         where: effectiveOn(applicationDate),
@@ -837,9 +1228,7 @@ export const leaveRequestService = {
           400,
         )
       }
-      basicDays = new Prisma.Decimal(entitlement.annualDays)
-      const annual = basicDays.plus(seniorityDays)
-      monthlyAccrual = annual.div(12)
+      annualDays = entitlement.annualDays
     } else {
       const rate = await prisma.tbl_leave_monthly_rate_rule.findFirst({
         where: effectiveOn(applicationDate),
@@ -851,11 +1240,15 @@ export const leaveRequestService = {
           400,
         )
       }
-      const monthlyRate = new Prisma.Decimal(rate.monthlyDays)
-      basicDays = monthlyRate.mul(12)
-      monthlyAccrual = monthlyRate.plus(seniorityDays.div(12))
+      monthlyDays = rate.monthlyDays
     }
-    const entitledDays = monthlyAccrual.mul(eligibleMonths)
+    const accrual = annualLeaveAccrual({
+      method: policy.method,
+      annualDays,
+      monthlyDays,
+      seniorityBonusDays: seniority.bonusDays,
+      eligibleMonths,
+    })
     const mothersLeave = await mothersLeaveFor(request.matricule, applicationDate)
     if (request.calculations.length > 0) {
       await prisma.tbl_leave_calculation.deleteMany({
@@ -871,10 +1264,10 @@ export const leaveRequestService = {
         accrualEndDate: applicationDate,
         serviceYears,
         eligibleMonths,
-        basicDays: money(basicDays, 2),
-        seniorityDays: money(seniorityDays, 2),
-        monthlyAccrual: money(monthlyAccrual, 4),
-        entitledDays: entitledDays.ceil(),
+        basicDays: money(accrual.basicDays, 2),
+        seniorityDays: money(accrual.seniorityDays, 2),
+        monthlyAccrual: money(accrual.monthlyAccrual, 4),
+        entitledDays: accrual.earnedDays,
         qualifyingChildCount: mothersLeave.qualifyingChildCount,
         mothersLeaveDays: mothersLeave.mothersLeaveDays,
       },
@@ -885,16 +1278,24 @@ export const leaveRequestService = {
     const row = await prisma.tbl_leave_request.findUnique({
       where: { id },
       include: {
-        leaveType: true,
+        leaveType: {
+          include: {
+            documentRequirements: { orderBy: { sortOrder: 'asc' as const } },
+          },
+        },
         attachments: true,
         calculations: { orderBy: { calculatedAt: 'desc' }, take: 1 },
       },
     })
     if (!row) throw new PersonnelNotFoundError('Leave request not found')
     await assertCanValidate(row, userId)
-    if (row.leaveType.requireAttachment && row.attachments.length === 0) {
+    const missingDocuments = row.leaveType.documentRequirements.filter(
+      (requirement) =>
+        !row.attachments.some((file) => file.requirementId === requirement.id),
+    )
+    if (missingDocuments.length > 0) {
       throw new PersonnelWorkflowError(
-        'This leave type requires a document before it can be validated',
+        `Attach the required documents: ${missingDocuments.map((requirement) => requirement.name).join(', ')}`,
         409,
       )
     }
@@ -923,7 +1324,7 @@ export const leaveRequestService = {
         startDate: row.startDate,
         accrualStartDate: snapshot.accrualStartDate,
         accrualEndDate: snapshot.accrualEndDate,
-        memoRef: input.memoRef.trim(),
+        daysToGrant: input.daysToGrant,
       })
       if (prepared.permissionDays > 0) {
         await tx.tbl_permission_account.update({
@@ -962,7 +1363,7 @@ export const leaveRequestService = {
         data: {
           leaveRequestId: id,
           calculationId: snapshot.id,
-          grantedDays: prepared.netDays,
+          grantedDays: prepared.daysTakenNow,
           leaveStartDate: row.startDate,
           leaveEndDate: prepared.endDate,
           expectedReturnDate: prepared.resumeDate,
@@ -975,7 +1376,7 @@ export const leaveRequestService = {
           leaveGrantId: grant.id,
           leaveStartDate: row.startDate,
           leaveEndDate: prepared.endDate,
-          daysGranted: prepared.netDays,
+          daysGranted: prepared.daysTakenNow,
         },
       })
       await tx.tbl_leave_memo.create({
@@ -987,6 +1388,9 @@ export const leaveRequestService = {
           entitledDays: prepared.entitledDays,
           permissionDays: prepared.permissionDays,
           netDays: prepared.netDays,
+          accruedLastTour: prepared.accruedLastTour,
+          daysTakenNow: prepared.daysTakenNow,
+          accruedThisTour: prepared.accruedThisTour,
           travelAllowance: prepared.travelAllowance,
           accrualStartDate: prepared.accrualStartDate,
           accrualEndDate: prepared.accrualEndDate,
@@ -997,19 +1401,357 @@ export const leaveRequestService = {
           signatoryPreface: prepared.signatoryPreface,
           signatoryName: prepared.signatoryName,
           signatoryTitle: prepared.signatoryTitle,
+          signerCategory: prepared.signerCategory,
+          signerUnitId: prepared.signerUnitId,
+          signerGroupId: prepared.signerGroupId,
           ccText: prepared.ccText,
+          ccLayout: prepared.ccLayout,
           html: prepared.html,
         },
       })
+      if (prepared.template === 'CATEGORY_9') {
+        const delta = prepared.accruedThisTour - prepared.accruedLastTour
+        await tx.tbl_leave_accrual_account.upsert({
+          where: { matricule: row.matricule },
+          create: {
+            matricule: row.matricule,
+            balanceDays: prepared.accruedThisTour,
+          },
+          update: { balanceDays: prepared.accruedThisTour },
+        })
+        await tx.tbl_leave_accrual_ledger.create({
+          data: {
+            matricule: row.matricule,
+            days: Math.abs(delta),
+            kind: delta >= 0 ? 'CREDIT' : 'DEBIT',
+            leaveRequestId: id,
+            note: `Last tour ${prepared.accruedLastTour}, accrued this tour ${prepared.accruedThisTour}`,
+            createdById: userId,
+          },
+        })
+      }
     })
     return this.get(id)
   },
   async memo(id: number) {
     const memo = await prisma.tbl_leave_memo.findUnique({
       where: { leaveRequestId: id },
+      include: {
+        leaveRequest: {
+          include: {
+            grants: { include: { calculation: true } },
+          },
+        },
+      },
     })
     if (!memo) throw new PersonnelNotFoundError('Leave memo has not been generated')
-    return { html: memo.html, title: memo.template === 'CATEGORY_9' ? 'Annual leave' : 'Approval of leave' }
+    const grant = memo.leaveRequest.grants[0]
+    const calculation = grant?.calculation
+    const mothersLeaveDays = calculation?.mothersLeaveDays ?? 0
+    const office =
+      memo.signerCategory != null
+        ? {
+            category: memo.signerCategory,
+            unitId: memo.signerUnitId,
+            groupId: memo.signerGroupId,
+          }
+        : await leaveSignerOffice(prisma, memo.leaveRequest.matricule)
+    const signer = await leaveMemoSigner({
+      category: office.category,
+      groupId: office.groupId,
+      unitId: office.unitId,
+      asOf: todayUtc(),
+    })
+    const template = leaveMemoTemplate(memo.template)
+    const startDate = grant?.leaveStartDate ?? memo.leaveRequest.startDate
+    const endDate = grant?.leaveEndDate ?? memo.leaveRequest.endDate ?? startDate
+    const model: LeaveMemoModel = {
+      template,
+      memoRef: memo.memoRef,
+      memoDate: memo.memoDate,
+      earnedDays: Math.max(0, memo.entitledDays - mothersLeaveDays),
+      mothersLeaveDays,
+      qualifyingChildCount: calculation?.qualifyingChildCount ?? 0,
+      entitledDays: memo.entitledDays,
+      permissionDays: memo.permissionDays,
+      netDays: memo.netDays,
+      accruedLastTour: memo.accruedLastTour,
+      daysTakenNow: memo.daysTakenNow,
+      accruedThisTour: memo.accruedThisTour,
+      travelAllowance: memo.travelAllowance,
+      accrualStartDate: memo.accrualStartDate,
+      accrualEndDate: memo.accrualEndDate,
+      employeeName: memo.employeeName,
+      unitName: null,
+      designation: memo.designation,
+      matricule: memo.leaveRequest.matricule,
+      startDate,
+      endDate,
+      resumeDate: grant?.expectedReturnDate ?? endDate,
+      fromTitle: signer.fromTitle,
+      throTitle: await leaveThroTitle({
+        matricule: memo.leaveRequest.matricule,
+        signatoryTitle: signer.signatoryTitle,
+        asOf: todayUtc(),
+      }),
+      signatoryPreface: memo.signatoryPreface,
+      signatoryName: signer.signatoryName,
+      signatoryTitle: signer.signatoryTitle,
+      ccText: memo.ccText,
+      ccLayout: memo.ccLayout === 'ROW' ? 'ROW' : 'COLUMN',
+    }
+    return {
+      html: buildLeaveMemoHtml(model),
+      title: template === 'CATEGORY_9' ? 'Annual leave' : 'Approval of leave',
+    }
+  },
+  async calculationReport(id: number) {
+    const request = await prisma.tbl_leave_request.findUnique({
+      where: { id },
+      include: {
+        leaveType: true,
+        calculations: {
+          orderBy: { calculatedAt: 'desc' },
+          take: 1,
+          include: { policy: true },
+        },
+        memo: true,
+      },
+    })
+    if (!request) throw new PersonnelNotFoundError('Leave request not found')
+    const snapshot = request.calculations[0]
+    if (!snapshot) {
+      throw new PersonnelNotFoundError('Leave has not been calculated')
+    }
+    const applicationDate = snapshot.accrualEndDate
+    const [
+      live,
+      history,
+      employment,
+      motherSetting,
+      seniorityRules,
+      entitlement,
+      monthlyRate,
+      permissionAccount,
+      accrualAccount,
+    ] = await Promise.all([
+      resolveLiveEmployee(request.matricule),
+      prisma.tbl_employee_leave_history.findFirst({
+        where: { matricule: request.matricule },
+        orderBy: { leaveEndDate: 'desc' },
+        select: { leaveEndDate: true },
+      }),
+      prisma.tbl_emp_employment.findFirst({
+        where: {
+          matricule: request.matricule,
+          current: true,
+          workflowStatus: 'VALIDATED',
+        },
+        select: { dateEng: true },
+      }),
+      prisma.tbl_leave_mother_setting.findUnique({ where: { id: 1 } }),
+      prisma.tbl_leave_seniority_rule.findMany({
+        where: effectiveOn(applicationDate),
+        orderBy: { minYears: 'desc' },
+      }),
+      prisma.tbl_leave_entitlement_rule.findFirst({
+        where: effectiveOn(applicationDate),
+        orderBy: { effectiveFrom: 'desc' },
+      }),
+      prisma.tbl_leave_monthly_rate_rule.findFirst({
+        where: effectiveOn(applicationDate),
+        orderBy: { effectiveFrom: 'desc' },
+      }),
+      prisma.tbl_permission_account.findUnique({
+        where: { matricule: request.matricule },
+        select: { balanceDays: true },
+      }),
+      prisma.tbl_leave_accrual_account.findUnique({
+        where: { matricule: request.matricule },
+        select: { balanceDays: true },
+      }),
+    ])
+    const supplyLastResumption = (
+      await leaveSetupService.processingSettings.get()
+    ).userSupplyLastResumption
+    const startKey = utcDay(snapshot.accrualStartDate)
+    const accrualStartReason =
+      history?.leaveEndDate && utcDay(history.leaveEndDate) === startKey
+        ? 'the end date of the previous leave'
+        : supplyLastResumption &&
+            request.suppliedResumedDate &&
+            utcDay(request.suppliedResumedDate) === startKey
+          ? 'the resumption date entered on the request'
+          : employment?.dateEng && utcDay(employment.dateEng) === startKey
+            ? 'the engagement date'
+            : 'the accrual start stored with this calculation'
+    const serviceYears = Number(snapshot.serviceYears)
+    const seniorityDays = Number(snapshot.seniorityDays)
+    const basicDays = Number(snapshot.basicDays)
+    const band = seniorityRules.find(
+      (rule) =>
+        rule.minYears <= serviceYears &&
+        (rule.maxYears == null || rule.maxYears >= serviceYears) &&
+        close(Number(rule.bonusDays), seniorityDays),
+    )
+    const seniorityBand = band
+      ? band.maxYears == null
+        ? `${band.minYears} years and above, ${figure(Number(band.bonusDays))} bonus days`
+        : `${band.minYears} to ${band.maxYears} years, ${figure(Number(band.bonusDays))} bonus days`
+      : null
+    const entitledDays = Number(snapshot.entitledDays)
+    const mothersLeaveDays = snapshot.mothersLeaveDays
+    const leaveDaysDue = entitledDays + mothersLeaveDays
+    const categoryNum = live?.category
+      ? parseCatEchCode(live.category).catNum
+      : 0
+    const category9 = categoryNum >= 9
+    const posted = request.memo
+    const lastTourDays = posted
+      ? posted.accruedLastTour
+      : category9
+        ? (accrualAccount?.balanceDays ?? 0)
+        : 0
+    const permissionBalance = permissionAccount?.balanceDays ?? 0
+    const grossDays = leaveDaysDue + lastTourDays
+    const permissionDays = posted
+      ? posted.permissionDays
+      : Math.min(permissionBalance, grossDays)
+    const netDays = posted ? posted.netDays : grossDays - permissionDays
+    const monthlyRateDays =
+      snapshot.policy.method === 'METHOD_2' &&
+      monthlyRate &&
+      close(Number(monthlyRate.monthlyDays) * 12, basicDays)
+        ? Number(monthlyRate.monthlyDays)
+        : null
+    const entitlementAnnualDays =
+      snapshot.policy.method === 'METHOD_1' &&
+      entitlement &&
+      close(Number(entitlement.annualDays), basicDays)
+        ? Number(entitlement.annualDays)
+        : null
+    return {
+      title: 'Leave calculation',
+      html: buildLeaveCalculationReportHtml({
+        employeeName: live?.names ?? request.matricule,
+        matricule: request.matricule,
+        leaveTypeName: request.leaveType.name,
+        applicationDate,
+        calculatedAt: snapshot.calculatedAt,
+        accrualStartDate: snapshot.accrualStartDate,
+        accrualStartReason,
+        engagementDate: employment?.dateEng ?? live?.dateEng ?? null,
+        eligibleMonths: Number(snapshot.eligibleMonths),
+        serviceYears,
+        policyName: snapshot.policy.name,
+        policyCode: snapshot.policy.code,
+        method: snapshot.policy.method,
+        basicDays,
+        seniorityDays,
+        seniorityBand,
+        monthlyAccrual: Number(snapshot.monthlyAccrual),
+        entitledDays,
+        qualifyingChildCount: snapshot.qualifyingChildCount,
+        mothersLeaveDays,
+        daysPerChild: motherSetting?.daysPerChild ?? 0,
+        maxAgeYears: motherSetting?.maxAgeYears ?? 0,
+        entitlementAnnualDays,
+        monthlyRateDays,
+        categoryLabel: live?.category ?? null,
+        category9,
+        lastTourDays,
+        permissionBalance,
+        permissionDays,
+        leaveDaysDue,
+        grossDays,
+        netDays,
+        balancesPosted: posted != null,
+      }),
+    }
+  },
+  async validateFixed(userId: number, id: number, review?: ReviewInput) {
+    const row = await prisma.tbl_leave_request.findUnique({
+      where: { id },
+      include: {
+        leaveType: {
+          include: {
+            documentRequirements: { orderBy: { sortOrder: 'asc' } },
+          },
+        },
+        attachments: true,
+      },
+    })
+    if (!row) throw new PersonnelNotFoundError('Leave request not found')
+    if (row.leaveType.category === 'PERMISSION') {
+      throw new PersonnelWorkflowError(
+        'Permission types are requested under Permission requests',
+        400,
+      )
+    }
+    if (isAnnualLeaveType(row.leaveType)) {
+      throw new PersonnelWorkflowError(
+        'Calculate this leave before validating it',
+        409,
+      )
+    }
+    await assertCanValidate(row, userId)
+    const missingDocuments = row.leaveType.documentRequirements.filter(
+      (requirement) =>
+        !row.attachments.some((file) => file.requirementId === requirement.id),
+    )
+    if (missingDocuments.length > 0) {
+      throw new PersonnelWorkflowError(
+        `Attach the required documents: ${missingDocuments.map((requirement) => requirement.name).join(', ')}`,
+        409,
+      )
+    }
+    const maxDays = row.leaveType.maxDays
+    if (maxDays == null || maxDays < 1) {
+      throw new PersonnelWorkflowError(
+        'Set a duration on this leave type before validating',
+        409,
+      )
+    }
+    const [holidays, settings] = await Promise.all([
+      prisma.tbl_public_holiday.findMany({
+        where: { active: true },
+        select: { month: true, day: true },
+      }),
+      prisma.tbl_leave_letter_setting.upsert({
+        where: { id: 1 },
+        create: { id: 1 },
+        update: {},
+      }),
+    ])
+    const endDate =
+      row.leaveType.durationUnit === 'CALENDAR_WEEKS'
+        ? addUtcDays(row.startDate, maxDays * 7 - 1)
+        : workingEndDate(
+            row.startDate,
+            maxDays,
+            holidays,
+            settings.saturdayWorking,
+          )
+    await prisma.$transaction(async (tx) => {
+      await tx.tbl_leave_request.updateMany({
+        where: {
+          matricule: row.matricule,
+          leaveTypeId: row.leaveTypeId,
+          current: true,
+          NOT: { id },
+        },
+        data: { current: false, workflowStatus: 'SUPERSEDED' },
+      })
+      await tx.tbl_leave_request.update({
+        where: { id },
+        data: {
+          ...validateStamps(userId, review?.reviewNote),
+          current: true,
+          endDate,
+        },
+      })
+    })
+    return this.get(id)
   },
   async reject(userId: number, id: number, review?: ReviewInput) {
     const row = await prisma.tbl_leave_request.findUnique({ where: { id } })
@@ -1021,12 +1763,29 @@ export const leaveRequestService = {
     })
     return this.get(id)
   },
-  async addAttachment(userId: number, requestId: number, file: File) {
+  async addAttachment(
+    userId: number,
+    requestId: number,
+    file: File,
+    requirementId: number | null,
+  ) {
     const request = await prisma.tbl_leave_request.findUnique({
       where: { id: requestId },
-      select: { workflowStatus: true },
+      select: { workflowStatus: true, leaveTypeId: true },
     })
     if (!request) throw new PersonnelNotFoundError('Leave request not found')
+    if (requirementId != null) {
+      const requirement = await prisma.tbl_leave_document_requirement.findFirst({
+        where: { id: requirementId, leaveTypeId: request.leaveTypeId },
+        select: { id: true },
+      })
+      if (!requirement) {
+        throw new PersonnelWorkflowError(
+          'That document is not required for this leave type',
+          400,
+        )
+      }
+    }
     if (
       request.workflowStatus !== 'PENDING' &&
       request.workflowStatus !== 'REJECTED'
@@ -1054,6 +1813,7 @@ export const leaveRequestService = {
           originalName: originalName || 'document',
           filePath: fileName,
           uploadedById: userId,
+          requirementId,
         },
       })
       return mapAttachment(row)
@@ -1093,6 +1853,73 @@ export const leaveRequestService = {
     await prisma.tbl_leave_attachment.delete({ where: { id: attachmentId } })
     await unlink(storedPath(row.filePath)).catch(() => undefined)
     return { id: attachmentId }
+  },
+  async employee(matricule: string) {
+    const live = await resolveLiveEmployee(matricule)
+    if (!live) {
+      throw new PersonnelNotFoundError(
+        `No employee found for matricule ${matricule}`,
+      )
+    }
+    const [latestLeave, latestResume, accrual] = await Promise.all([
+      prisma.tbl_employee_leave_history.findFirst({
+        where: { matricule },
+        orderBy: { leaveEndDate: 'desc' },
+        select: { leaveEndDate: true },
+      }),
+      prisma.tbl_employee_leave_history.findFirst({
+        where: { matricule, resumedDate: { not: null } },
+        orderBy: { resumedDate: 'desc' },
+        select: { resumedDate: true },
+      }),
+      prisma.tbl_leave_accrual_account.findUnique({
+        where: { matricule },
+        select: { balanceDays: true },
+      }),
+    ])
+    return {
+      matricule: live.matricule,
+      name: live.names,
+      designation: live.designation,
+      category: live.category,
+      unitName: live.unitName,
+      groupName: live.groupName,
+      dateEng: live.dateEng,
+      lastLeaveDate: latestLeave?.leaveEndDate ?? null,
+      lastResumedDate: latestResume?.resumedDate ?? null,
+      accrualBalance: accrual?.balanceDays ?? 0,
+    }
+  },
+  async adjustAccrual(userId: number, input: LeaveAccrualAdjustInput) {
+    const employee = await prisma.tbl_employee.findUnique({
+      where: { matricule: input.matricule },
+      select: { matricule: true },
+    })
+    if (!employee) throw new PersonnelNotFoundError('Employee not found')
+    const existing = await prisma.tbl_leave_accrual_account.findUnique({
+      where: { matricule: input.matricule },
+      select: { balanceDays: true },
+    })
+    const current = existing?.balanceDays ?? 0
+    if (current === input.balanceDays) return { balanceDays: current }
+    const delta = input.balanceDays - current
+    await prisma.$transaction(async (tx) => {
+      await tx.tbl_leave_accrual_account.upsert({
+        where: { matricule: input.matricule },
+        create: { matricule: input.matricule, balanceDays: input.balanceDays },
+        update: { balanceDays: input.balanceDays },
+      })
+      await tx.tbl_leave_accrual_ledger.create({
+        data: {
+          matricule: input.matricule,
+          days: Math.abs(delta),
+          kind: delta > 0 ? 'CREDIT' : 'DEBIT',
+          note: `Balance set from ${current} to ${input.balanceDays}`,
+          createdById: userId,
+        },
+      })
+    })
+    return { balanceDays: input.balanceDays }
   },
   async history(matricule: string) {
     const rows = await prisma.tbl_employee_leave_history.findMany({
@@ -1153,9 +1980,90 @@ export const leaveRequestService = {
   },
 }
 
+async function leaveThroTitle(input: {
+  matricule: string
+  signatoryTitle: string | null
+  asOf: Date
+}): Promise<string> {
+  const employee = await prisma.tbl_employee.findUnique({
+    where: { matricule: input.matricule },
+    select: { currentUnitId: true },
+  })
+  const section = employee?.currentUnitId
+    ? await prisma.tbl_section.findFirst({
+        where: { tbl_unit_id: employee.currentUnitId },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+      })
+    : null
+  return resolveMemoThroTitle({
+    unitId: employee?.currentUnitId ?? null,
+    sectionId: section?.id ?? null,
+    signatoryTitle: input.signatoryTitle,
+    asOf: input.asOf,
+  })
+}
+
 function todayUtc(): Date {
   const now = new Date()
   return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+}
+
+function leaveMemoTemplate(value: string): LeaveMemoModel['template'] {
+  if (value === 'CATEGORY_9' || value === 'BELOW_PERMISSION' || value === 'BELOW_NONE') {
+    return value
+  }
+  return 'BELOW_NONE'
+}
+
+async function leaveSignerOffice(
+  db: Prisma.TransactionClient | typeof prisma,
+  matricule: string,
+): Promise<{ category: number; unitId: string | null; groupId: string | null }> {
+  const [classification, employee] = await Promise.all([
+    db.tbl_emp_class.findFirst({
+      where: { matricule, workflowStatus: 'VALIDATED' },
+      orderBy: [{ letter_date: 'desc' }, { effective_date: 'desc' }, { id: 'desc' }],
+      select: { category: true },
+    }),
+    db.tbl_employee.findUnique({
+      where: { matricule },
+      select: { currentUnitId: true },
+    }),
+  ])
+  const category = classification ? parseCatEchCode(classification.category).catNum : 0
+  if (!employee?.currentUnitId) return { category, unitId: null, groupId: null }
+  const unit = await db.tbl_unit.findUnique({
+    where: { id: employee.currentUnitId },
+    select: { groupid: true },
+  })
+  return {
+    category,
+    unitId: employee.currentUnitId,
+    groupId: unit?.groupid ?? null,
+  }
+}
+
+async function leaveMemoSigner(input: {
+  category: number
+  groupId: string | null
+  unitId: string | null
+  asOf: Date
+}): Promise<{ fromTitle: string; signatoryName: string | null; signatoryTitle: string }> {
+  const signatory = await resolveOfficialMemoSignatory({
+    code: 'LEAVE_APPROVAL',
+    category: input.category,
+    unitId: input.unitId,
+    groupId: input.groupId,
+    asOf: input.asOf,
+  })
+  const title = signatory?.title ?? 'ESTATE MANAGER'
+  const category9 = input.category >= 9
+  return {
+    fromTitle: title,
+    signatoryName: category9 ? null : (signatory?.name ?? null),
+    signatoryTitle: title,
+  }
 }
 
 async function prepareLeaveMemo(
@@ -1168,24 +2076,17 @@ async function prepareLeaveMemo(
     startDate: Date
     accrualStartDate: Date
     accrualEndDate: Date
-    memoRef: string
+    daysToGrant?: number
   },
-): Promise<LeaveMemoModel & { html: string }> {
-  const dueDays = input.earnedDays + input.mothersLeaveDays
-  const account = await tx.tbl_permission_account.findUnique({
-    where: { matricule: input.matricule },
-    select: { balanceDays: true },
-  })
-  const balance = account?.balanceDays ?? 0
-  const permissionDays = Math.min(balance, dueDays)
-  const netDays = dueDays - permissionDays
-  if (netDays < 1) {
-    throw new PersonnelWorkflowError(
-      'Permission days cover the whole leave due. Nothing is left to grant',
-      400,
-    )
+): Promise<
+  LeaveMemoModel & {
+    html: string
+    signerCategory: number
+    signerUnitId: string | null
+    signerGroupId: string | null
   }
-  const [employee, classification, movement, employment, holidays, settings, placement] =
+> {
+  const [employee, classification, movement, employment, holidays, settings, placement, permissionAccount, accrualAccount] =
     await Promise.all([
       tx.tbl_employee.findUnique({
         where: { matricule: input.matricule },
@@ -1194,9 +2095,13 @@ async function prepareLeaveMemo(
       tx.tbl_emp_class.findFirst({
         where: {
           matricule: input.matricule,
-          current: true,
           workflowStatus: 'VALIDATED',
         },
+        orderBy: [
+          { letter_date: 'desc' },
+          { effective_date: 'desc' },
+          { id: 'desc' },
+        ],
         select: { category: true },
       }),
       tx.tbl_emp_movement.findFirst({
@@ -1256,15 +2161,53 @@ async function prepareLeaveMemo(
             sectionId: section?.id ?? null,
           }
         }),
+      tx.tbl_permission_account.findUnique({
+        where: { matricule: input.matricule },
+        select: { balanceDays: true },
+      }),
+      tx.tbl_leave_accrual_account.findUnique({
+        where: { matricule: input.matricule },
+        select: { balanceDays: true },
+      }),
     ])
   if (!employee) throw new PersonnelNotFoundError('Employee not found')
   const category = classification
     ? parseCatEchCode(classification.category).catNum
     : 0
+  const memoRef = leaveMemoFileRef('ANNUAL_LEAVE', category)
+  if (!memoRef) {
+    throw new PersonnelWorkflowError(
+      'No file reference is defined for this employee category',
+      400,
+    )
+  }
   const category9 = category >= 9
+  const accruedLastTour = category9 ? (accrualAccount?.balanceDays ?? 0) : 0
+  const dueDays = input.earnedDays + input.mothersLeaveDays + accruedLastTour
+  const permissionBalance = permissionAccount?.balanceDays ?? 0
+  const permissionDays = Math.min(permissionBalance, dueDays)
+  const netDays = dueDays - permissionDays
+  if (netDays < 1) {
+    throw new PersonnelWorkflowError(
+      'Permission days cover the whole leave due. Nothing is left to grant',
+      400,
+    )
+  }
+  const daysTakenNow =
+    category9 && input.daysToGrant != null ? input.daysToGrant : netDays
+  if (
+    category9 &&
+    (!Number.isInteger(daysTakenNow) || daysTakenNow < 1 || daysTakenNow > netDays)
+  ) {
+    throw new PersonnelWorkflowError(
+      'Days to grant must be a whole number from 1 through the leave due',
+      400,
+    )
+  }
+  const accruedThisTour = category9 ? netDays - daysTakenNow : 0
   const endDate = workingEndDate(
     input.startDate,
-    netDays,
+    daysTakenNow,
     holidays,
     settings.saturdayWorking,
   )
@@ -1297,27 +2240,31 @@ async function prepareLeaveMemo(
       400,
     )
   }
-  const signatory = await resolveDecisionSignatory({
+  const signer = await leaveMemoSigner({
     category,
-    unitId: placement.unitId,
     groupId: placement.groupId,
+    unitId: placement.unitId,
     asOf: memoDate,
   })
-  const fromTitle = (signatory?.title ?? 'ESTATE MANAGER').toUpperCase()
-  const throTitle = await resolveSectionThroTitle({
+  const throTitle = await resolveMemoThroTitle({
+    unitId: placement.unitId,
     sectionId: placement.sectionId,
+    signatoryTitle: signer.signatoryTitle,
     asOf: memoDate,
   })
   const model: LeaveMemoModel = {
     template,
-    memoRef: input.memoRef,
+    memoRef,
     memoDate,
     earnedDays: input.earnedDays,
     mothersLeaveDays: input.mothersLeaveDays,
     qualifyingChildCount: input.qualifyingChildCount,
-    entitledDays: dueDays,
+    entitledDays: input.earnedDays + input.mothersLeaveDays,
     permissionDays,
     netDays,
+    accruedLastTour,
+    daysTakenNow,
+    accruedThisTour,
     travelAllowance: travel.amount,
     accrualStartDate: input.accrualStartDate,
     accrualEndDate: input.accrualEndDate,
@@ -1328,12 +2275,19 @@ async function prepareLeaveMemo(
     startDate: input.startDate,
     endDate,
     resumeDate,
-    fromTitle,
+    fromTitle: signer.fromTitle,
     throTitle,
-    signatoryPreface: category9 ? null : settings.delegationPreface,
-    signatoryName: category9 ? null : settings.delegationName,
-    signatoryTitle: category9 ? settings.signCategory9 : settings.delegationTitle,
+    signatoryPreface: null,
+    signatoryName: signer.signatoryName,
+    signatoryTitle: signer.signatoryTitle,
     ccText: category9 ? settings.ccCategory9 : settings.ccBelow,
+    ccLayout: settings.ccLayout === 'ROW' ? 'ROW' : 'COLUMN',
   }
-  return { ...model, html: buildLeaveMemoHtml(model) }
+  return {
+    ...model,
+    html: buildLeaveMemoHtml(model),
+    signerCategory: category,
+    signerUnitId: placement.unitId,
+    signerGroupId: placement.groupId,
+  }
 }

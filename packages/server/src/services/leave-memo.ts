@@ -1,4 +1,10 @@
-import { MEMO_LETTERHEAD_CSS, memoLetterheadHtml } from '@personel-management-app/shared'
+import {
+  memoDateHtml,
+  memoFormDocumentHtml,
+  memoFormPageHtml,
+  type MemoCcLayout,
+} from '@personel-management-app/shared'
+import { CATEGORY_9_MEMO_CSS } from './category-9-memo-css.js'
 
 const ONES = [
   'zero',
@@ -159,6 +165,9 @@ export type LeaveMemoModel = {
   entitledDays: number
   permissionDays: number
   netDays: number
+  accruedLastTour: number
+  daysTakenNow: number
+  accruedThisTour: number
   travelAllowance: number
   accrualStartDate: Date | null
   accrualEndDate: Date | null
@@ -175,6 +184,7 @@ export type LeaveMemoModel = {
   signatoryName: string | null
   signatoryTitle: string
   ccText: string
+  ccLayout: MemoCcLayout
 }
 
 function escapeHtml(value: string): string {
@@ -185,76 +195,99 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
 }
 
+function titleCase(value: string): string {
+  if (
+    value.length > 0 &&
+    !/\s/u.test(value) &&
+    value === value.toLocaleUpperCase('en') &&
+    /\p{L}/u.test(value)
+  ) {
+    return value
+  }
+  return value
+    .toLocaleLowerCase('en')
+    .replace(
+      /(^|[^\p{L}])(\p{L})/gu,
+      (_, boundary: string, letter: string) => boundary + letter.toLocaleUpperCase('en'),
+    )
+}
+
 function ccLines(text: string, extra?: string | null): string {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
   if (extra?.trim()) lines.push(extra.trim())
-  return lines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')
+  return lines.map((line) => escapeHtml(line)).join(', ')
+}
+
+function ccLineList(text: string, extra?: string | null): string[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (extra?.trim()) lines.push(extra.trim())
+  return lines
 }
 
 export function buildLeaveMemoHtml(memo: LeaveMemoModel): string {
+  if (memo.template === 'CATEGORY_9') return category9MemoHtml(memo)
   const designation = memo.designation?.trim()
-  const letterhead = memoLetterheadHtml({
+  const page = memoFormPageHtml({
     fromTitle: memo.fromTitle,
-    unitName: memo.unitName,
     toName: memo.employeeName,
     designation: memo.designation,
     throTitle: memo.throTitle,
+    refs: [memo.memoRef],
+    matricule: memo.matricule,
+    dateHtml: memoDateHtml(memo.memoDate),
+    subject: 'APPROVAL OF LEAVE',
+    bodyHtml: belowBody(memo),
+    signatoryName: memo.signatoryName,
+    signatoryTitle: memo.signatoryTitle,
+    ccLines: ccLineList(
+      memo.ccText,
+      memo.template === 'BELOW_NONE' ? designation : null,
+    ),
+    ccLayout: memo.ccLayout,
   })
-  const cc =
-    memo.template === 'BELOW_NONE'
-      ? ccLines(memo.ccText, designation)
-      : ccLines(memo.ccText)
-  const body =
-    memo.template === 'CATEGORY_9'
-      ? categoryBody(memo)
-      : belowBody(memo)
-  const signature =
-    memo.template === 'CATEGORY_9'
-      ? `<div class="sign-right"><strong>${escapeHtml(memo.signatoryTitle)}</strong></div>`
-      : `<div class="sign-center">
-          <div>${escapeHtml(memo.signatoryPreface ?? '')}</div>
-          <div class="dots">................................</div>
-          <div><strong>${escapeHtml(memo.signatoryName ?? '')}</strong></div>
-          <div><strong>${escapeHtml(memo.signatoryTitle)}</strong></div>
-        </div>`
-  const subject =
-    memo.template === 'CATEGORY_9' ? 'ANNUAL LEAVE' : 'APPROVAL OF LEAVE'
+  return memoFormDocumentHtml({ title: 'APPROVAL OF LEAVE', pageHtml: page })
+}
+
+function category9MemoHtml(memo: LeaveMemoModel): string {
+  const designation = memo.designation?.trim()
+  const letterhead = `<div class="cat9-address">
+        <div>${escapeHtml(titleCase(memo.fromTitle))}</div>
+        <div class="cat9-to">
+          <div class="cat9-name">${escapeHtml(memo.employeeName)}</div>
+          <div class="cat9-under">
+            ${designation ? `<div class="cat9-role">(${escapeHtml(designation)})</div>` : ''}
+            <div>Thro' ${escapeHtml(memo.throTitle)}</div>
+          </div>
+        </div>
+      </div>`
+  const cc = ccLines(memo.ccText)
+  const subject = 'ANNUAL LEAVE'
+  const heading = `<div class="cat9-meta">
+        <div>
+          <div class="ref">${escapeHtml(memo.memoRef)}</div>
+          <div><strong>Mat. N° ${escapeHtml(memo.matricule)}</strong></div>
+        </div>
+        <h1>${subject}</h1>
+        <div class="cat9-date">${escapeHtml(memoDateLabel(memo.memoDate))}</div>
+      </div>`
+  const signature = `<div class="sign-right"><strong>${escapeHtml(memo.signatoryTitle)}</strong></div>`
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>${subject}</title>
-  <style>
-    @page { size: A4; margin: 16mm; }
-    body { font-family: "Times New Roman", Times, serif; font-size: 12pt; color: #000; margin: 0; }
-    ${MEMO_LETTERHEAD_CSS}
-    .meta { display: flex; justify-content: space-between; margin-top: 28px; }
-    .ref { font-weight: 700; }
-    h1 { text-align: center; text-decoration: underline; font-size: 14pt; margin: 22px 0; }
-    p { margin: 0 0 12px; line-height: 1.45; }
-    table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; }
-    td { padding: 2px 0; vertical-align: bottom; }
-    td.days { text-align: right; width: 70px; font-weight: 700; }
-    .sign-center { margin-top: 28px; text-align: center; }
-    .sign-right { margin-top: 28px; text-align: right; font-weight: 700; }
-    .dots { letter-spacing: 1px; margin: 18px 0 4px; }
-    .cc { margin-top: 28px; }
-  </style>
+  <style>${CATEGORY_9_MEMO_CSS}</style>
 </head>
 <body>
   ${letterhead}
-  <div class="meta">
-    <div>
-      <div class="ref">${escapeHtml(memo.memoRef)}</div>
-      <div><strong>Mat. N° ${escapeHtml(memo.matricule)}</strong></div>
-    </div>
-    <div>${escapeHtml(memoDateLabel(memo.memoDate))}</div>
-  </div>
-  <h1>${subject}</h1>
-  ${body}
+  ${heading}
+  ${categoryBody(memo)}
   ${signature}
   <div class="cc"><strong>CC:</strong> ${cc}</div>
 </body>
@@ -280,25 +313,26 @@ function categoryBody(memo: LeaveMemoModel): string {
       ? `${slashDate(memo.accrualStartDate)} to ${slashDate(memo.accrualEndDate)}`
       : 'the accrual window'
   const row = (label: string, days: string) =>
-    `<tr><td>${label}</td><td class="days">${days}</td></tr>`
+    `<tr><td class="leave-item"><span>${label}</span><span class="leader"></span><span>=</span></td><td class="days">${escapeHtml(days)}</td></tr>`
   return `<p>Permission has been granted for you to proceed on leave as follows:</p>
     <p><strong>START:</strong> ${slashDate(memo.startDate)}<br/>
     <strong>END:</strong> ${slashDate(memo.endDate)}<br/>
     <strong>RESUME:</strong> ${slashDate(memo.resumeDate)}</p>
     <table>
+      <tr><td></td><td class="days">DAYS</td></tr>
       ${row(`1) Leave earned from ${earned}`, String(memo.earnedDays))}
-      ${row('2) Amount of leave accrued last tour', 'NIL')}
+      ${row('2) Amount of leave accrued last tour', memo.accruedLastTour > 0 ? String(memo.accruedLastTour) : 'NIL')}
       ${row(
         memo.mothersLeaveDays > 0
           ? `3) Mother's leave: (No. of children: ${memo.qualifyingChildCount})`
           : "3) Mother's leave: (No. of children)",
         memo.mothersLeaveDays > 0 ? String(memo.mothersLeaveDays) : 'NIL',
       )}
-      ${row('4) Total leave due (1 + 2 + 3)', String(memo.earnedDays + memo.mothersLeaveDays))}
+      ${row('4) Total leave due (1 + 2 + 3)', String(memo.earnedDays + memo.accruedLastTour + memo.mothersLeaveDays))}
       ${row('5) Less Permission / Absence', String(memo.permissionDays))}
       ${row('6) Total leave due', String(memo.netDays))}
-      ${row('7) Leave to be taken now', String(memo.netDays))}
-      ${row('8) Leave accrued this tour', 'NIL')}
+      ${row('7) Leave to be taken now', String(memo.daysTakenNow))}
+      ${row('8) Leave accrued this tour', memo.accruedThisTour > 0 ? String(memo.accruedThisTour) : 'NIL')}
     </table>
     <p>Please note that leave travel allowance of <strong>${memo.travelAllowance.toLocaleString('en-US')} francs</strong> will be paid to you on your return from leave.</p>
     <p>Enclosed is a memorandum regarding Medical Examination to be completed by a Corporation Medical Officer. It is necessary that you undergo a Medical Examination prior to departure.</p>

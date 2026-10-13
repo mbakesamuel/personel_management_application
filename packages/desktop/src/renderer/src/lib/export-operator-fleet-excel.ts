@@ -1,6 +1,7 @@
 import type { CommunicationMemoDraftRow } from '@personel-management-app/shared'
 import * as XLSX from 'xlsx'
 import { REPORT_COMPANY_NAME } from '../components/ReportHeader'
+import { formatDisplayDate } from './format-date'
 
 const ADDITION_HEADERS = [
   'CLIENT NAME',
@@ -89,17 +90,14 @@ function accountOf(operatorName: string, accountNo: string | null) {
 }
 
 export function displayDate(iso: string | null): string {
-  if (!iso) return ''
-  const [year, month, day] = iso.slice(0, 10).split('-')
-  if (!year || !month || !day) return ''
-  return `${day}/${month}/${year}`
+  return formatDisplayDate(iso)
 }
 
 export function firstOfNextMonth(from = new Date()): string {
   const next = new Date(from.getFullYear(), from.getMonth() + 1, 1)
   const day = String(next.getDate()).padStart(2, '0')
   const month = String(next.getMonth() + 1).padStart(2, '0')
-  return `${day}/${month}/${next.getFullYear()}`
+  return `${day}-${month}-${next.getFullYear()}`
 }
 
 function fileSlug(value: string): string {

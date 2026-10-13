@@ -1,4 +1,10 @@
-import type { EmployeeOption, User, WorkflowStatus } from '@personel-management-app/shared'
+import {
+  canChangeAccess,
+  canViewAccess,
+  type EmployeeOption,
+  type User,
+  type WorkflowStatus,
+} from '@personel-management-app/shared'
 import { Check, Pencil, Plus, X, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createApiClient } from '../../api/client'
@@ -201,7 +207,10 @@ export function PersonnelChildTableDialog({
   const [reviewId, setReviewId] = useState<number | null>(null)
   const [reviewResource, setReviewResource] = useState<string | null>(null)
 
-  const canReview = currentUser.permissions.canValidate
+  const canChange = canChangeAccess(currentUser.permissions.personnelAccess)
+  const canReview =
+    currentUser.permissions.canValidate &&
+    canViewAccess(currentUser.permissions.personnelAccess)
   const selectedRow = useMemo(
     () => rows.find((r) => rowId(r) === selectedId) ?? null,
     [rows, selectedId],
@@ -725,6 +734,7 @@ export function PersonnelChildTableDialog({
               className="w-full justify-start"
               disabled={
                 loading ||
+                !canChange ||
                 (config.id === 'employments' && rows.length > 0)
               }
               onClick={() => void openCreate()}
@@ -739,6 +749,7 @@ export function PersonnelChildTableDialog({
               className="w-full justify-start"
               disabled={
                 loading ||
+                !canChange ||
                 !selectedRow ||
                 (config.id === 'employments' &&
                   !canChangeEmployment(rowWorkflowStatus(selectedRow)))
@@ -912,7 +923,7 @@ export function PersonnelChildTableDialog({
           primaryLabel={loading ? 'Saving…' : 'Save'}
           onPrimary={() => void handleSaveRow()}
           onCancel={() => setRowDialogOpen(false)}
-          primaryDisabled={loading}
+          primaryDisabled={loading || !canChange}
           cancelDisabled={loading}
         />
       </FormDialog>

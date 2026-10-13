@@ -2,6 +2,7 @@ import {
   canEditWorkflowStatus,
   type WorkflowStatus,
 } from '@personel-management-app/shared'
+import { formatDisplayDate } from '../../lib/format-date'
 
 export type ChildResourceKey =
   | 'identifications'
@@ -66,10 +67,10 @@ export function formatDateCell(value: unknown): string {
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed) return '—'
-    return trimmed.slice(0, 10)
+    return formatDisplayDate(trimmed) || '—'
   }
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10)
+    return formatDisplayDate(value.toISOString()) || '—'
   }
   return '—'
 }

@@ -110,6 +110,7 @@ export type UnitOption = {
   groupId: string
   zoneId: string
   active: boolean
+  splitIntoSections: boolean
 }
 
 export type ZoneOption = {
@@ -219,6 +220,7 @@ export type AllocationLetter = {
 
 export type AllocationLettersResponse = {
   letters: AllocationLetter[]
+  ccLayout: 'ROW' | 'COLUMN'
 }
 
 export type DashboardAppraisalCounts = {
@@ -374,16 +376,25 @@ export type DecisionLevelCode =
 export type DecisionLevel = {
   code: DecisionLevelCode
   title: string
-  catFrom: number
-  catTo: number
   scope: DecisionScope
 }
 
-export type DecisionAssignment = {
+export type OfficialMemo = {
   id: number
-  levelCode: DecisionLevelCode
+  code: string
   name: string
+  system: boolean
+  sortOrder: number
+}
+
+export type OfficialMemoSignatory = {
+  id: number
+  memoId: number
+  levelCode: DecisionLevelCode
+  name: string | null
   title: string
+  catFrom: number
+  catTo: number
   unitId: string | null
   unitName: string | null
   groupId: string | null
@@ -398,6 +409,32 @@ export type SectionThroAssignment = {
   name: string
   title: string
   effdate: string
+}
+
+export type UnitThroAssignment = {
+  id: number
+  unitId: string
+  unitName: string | null
+  name: string
+  title: string
+  effdate: string
+}
+
+export type LeaveDueRow = {
+  matricule: string
+  name: string
+  designation: string | null
+  category: string | null
+  groupName: string | null
+  zoneName: string | null
+  unitName: string | null
+  lastReturnDate: string | null
+  accrualStartDate: string
+  completedMonths: number
+  durationYears: number
+  durationMonths: number
+  earnedDays: number | null
+  application: 'Pending' | null
 }
 
 export type SalaryReviewExportRow = {

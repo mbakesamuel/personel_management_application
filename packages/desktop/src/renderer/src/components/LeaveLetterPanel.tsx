@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createApiClient } from '../api/client'
+import { formatDisplayDate } from '../lib/format-date'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -45,6 +46,7 @@ type Settings = {
   signCategory9: string
   ccBelow: string
   ccCategory9: string
+  ccLayout: 'ROW' | 'COLUMN'
 }
 
 async function readError(res: Response, fallback: string) {
@@ -321,9 +323,13 @@ export function LeaveLetterPanel() {
                     <TableCell>{band.minCategory}</TableCell>
                     <TableCell>{band.maxCategory}</TableCell>
                     <TableCell>{band.amount.toLocaleString('en-US')}</TableCell>
-                    <TableCell>{band.effectiveFrom.slice(0, 10)}</TableCell>
                     <TableCell>
-                      {band.effectiveTo ? band.effectiveTo.slice(0, 10) : '—'}
+                      {formatDisplayDate(band.effectiveFrom)}
+                    </TableCell>
+                    <TableCell>
+                      {band.effectiveTo
+                        ? formatDisplayDate(band.effectiveTo)
+                        : '—'}
                     </TableCell>
                     <TableCell>{band.active ? 'Yes' : 'No'}</TableCell>
                     <TableCell>
@@ -453,6 +459,22 @@ export function LeaveLetterPanel() {
               value={settings.delegationTitle}
               onChange={(event) => setField('delegationTitle', event.target.value)}
             />
+          </label>
+          <label className="space-y-1 text-sm md:col-span-2">
+            <span className="text-muted-foreground">CC arrangement</span>
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              value={settings.ccLayout}
+              onChange={(event) =>
+                setField(
+                  'ccLayout',
+                  event.target.value === 'ROW' ? 'ROW' : 'COLUMN',
+                )
+              }
+            >
+              <option value="COLUMN">Column</option>
+              <option value="ROW">Row</option>
+            </select>
           </label>
           <label className="space-y-1 text-sm md:col-span-2">
             <span className="text-muted-foreground">CC below category 9</span>

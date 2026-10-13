@@ -1,0 +1,5 @@
+ALTER TABLE `tbl_leave_memo`
+  ADD COLUMN `signerCategory` INTEGER NULL,
+  ADD COLUMN `signerUnitId` VARCHAR(3) NULL,
+  ADD COLUMN `signerGroupId` VARCHAR(191) NULL,
+  ADD COLUMN `ccLayout` VARCHAR(10) NOT NULL DEFAULT 'COLUMN';

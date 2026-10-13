@@ -11,7 +11,7 @@ import {
   type SidebarGroup,
   type SidebarItem,
 } from "./components/AppSidebar";
-import { DecisionMatricConsole } from "./components/DecisionMatricConsole";
+import { OfficialMemoConsole } from "./components/OfficialMemoConsole";
 import { DashboardGroupsConsole } from "./components/DashboardGroupsConsole";
 import { HomeDashboard } from "./components/HomeDashboard";
 import { FinancialYearsConsole } from "./components/FinancialYearsConsole";
@@ -35,8 +35,11 @@ import { AllowanceChangeLettersConsole } from "@/components/AllowanceChangeLette
 import { CommunicationLinesConsole } from "@/components/CommunicationLinesConsole";
 import { OperatorExportConsole } from "@/components/OperatorExportConsole";
 import { LeaveConsole } from "./components/LeaveConsole";
+import { LeaveDueConsole } from "./components/LeaveDueConsole";
 import { PermissionsConsole } from "./components/PermissionsConsole";
 import { LeaveSetupConsole } from "./components/LeaveSetupConsole";
+import { LeaveTypesConsole } from "./components/LeaveTypesConsole";
+import { AbsenceReport } from "./components/AbsenceReport";
 import { PersonnelConsole } from "./components/PersonnelConsole";
 import { ViewErrorBoundary } from "./components/ViewErrorBoundary";
 import { PositionKeywordsConsole } from "./components/PositionKeywordsConsole";
@@ -70,6 +73,7 @@ export default function App() {
     null,
   );
   const [view, setView] = useState<AppView>("home");
+  const [leaveMatricule, setLeaveMatricule] = useState<string | null>(null);
   const [correspondenceFocus, setCorrespondenceFocus] =
     useState<CorrespondenceFocus | null>(null);
   const [memoOperatorId, setMemoOperatorId] = useState<number | null>(null);
@@ -173,6 +177,10 @@ export default function App() {
       ...(perms?.canLeave
         ? [
             {
+              view: "leave-types" as const,
+              label: "Leave types",
+            },
+            {
               view: "leave-setup" as const,
               label: "Leave setup",
             },
@@ -201,8 +209,8 @@ export default function App() {
       ...(perms?.canDecisionMatrix
         ? [
             {
-              view: "decision-matric" as const,
-              label: "Signature Matrix",
+              view: "official-memos" as const,
+              label: "Memo signatories",
             },
           ]
         : []),
@@ -241,7 +249,7 @@ export default function App() {
     ];
 
     const operationItems: SidebarItem[] = [
-      ...(perms?.canPersonnel
+      ...(perms && perms.personnelAccess !== "NONE"
         ? [
             {
               view: "personnel" as const,
@@ -249,15 +257,27 @@ export default function App() {
             },
           ]
         : []),
-      ...(perms?.canLeave
+      ...(perms?.canPermissionRequests
         ? [
             {
               view: "permissions" as const,
-              label: "Permissions",
+              label: "Permission requests",
             },
+          ]
+        : []),
+      ...(perms?.canLeaveRequests
+        ? [
             {
               view: "leave" as const,
-              label: "Leaves Processing",
+              label: "Leave requests",
+            },
+          ]
+        : []),
+      ...(perms?.canLeaveDue
+        ? [
+            {
+              view: "leave-due" as const,
+              label: "Leave due",
             },
           ]
         : []),
@@ -327,6 +347,14 @@ export default function App() {
     ];
 
     const reportItems: SidebarItem[] = [
+      ...(perms?.canLeaveRequests || perms?.canPermissionRequests
+        ? [
+            {
+              view: "absence-report" as const,
+              label: "Absence report",
+            },
+          ]
+        : []),
       ...(perms?.canAppraisals
         ? [
             {
@@ -510,7 +538,10 @@ export default function App() {
           currentView={view}
           collapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
-          onNavigate={setView}
+          onNavigate={(next) => {
+            if (next === "leave") setLeaveMatricule(null);
+            setView(next);
+          }}
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -541,19 +572,47 @@ export default function App() {
               currentUser={user}
               onClose={() => setView("home")}
             />
+          ) : view === "leave-types" && user.permissions.canLeave ? (
+            <LeaveTypesConsole onClose={() => setView("home")} />
           ) : view === "leave-setup" && user.permissions.canLeave ? (
             <LeaveSetupConsole
               currentUser={user}
               onClose={() => setView("home")}
             />
-          ) : view === "permissions" && user.permissions.canLeave ? (
+          ) : view === "permissions" && user.permissions.canPermissionRequests ? (
             <PermissionsConsole
               currentUser={user}
               onClose={() => setView("home")}
             />
-          ) : view === "leave" && user.permissions.canLeave ? (
-            <LeaveConsole currentUser={user} onClose={() => setView("home")} />
-          ) : view === "personnel" ? (
+          ) : view === "leave" && user.permissions.canLeaveRequests ? (
+            <LeaveConsole
+              currentUser={user}
+              initialMatricule={leaveMatricule}
+              onShowLeaveDue={
+                user.permissions.canLeaveDue
+                  ? () => setView("leave-due")
+                  : undefined
+              }
+              onClose={() => setView("home")}
+            />
+          ) : view === "leave-due" && user.permissions.canLeaveDue ? (
+            <LeaveDueConsole
+              onOpenLeave={
+                user.permissions.canLeaveRequests
+                  ? (matricule) => {
+                      setLeaveMatricule(matricule);
+                      setView("leave");
+                    }
+                  : undefined
+              }
+              onClose={() => setView("home")}
+            />
+          ) : view === "absence-report" &&
+            (user.permissions.canLeaveRequests ||
+              user.permissions.canPermissionRequests) ? (
+            <AbsenceReport onClose={() => setView("home")} />
+          ) : view === "personnel" &&
+            user.permissions.personnelAccess !== "NONE" ? (
             <ViewErrorBoundary label="Personnel screen crashed">
               <PersonnelConsole
                 currentUser={user}
@@ -609,8 +668,8 @@ export default function App() {
             <PositionKeywordsConsole onClose={() => setView("home")} />
           ) : view === "allowance-matrix" ? (
             <AllowanceMatrixConsole onClose={() => setView("home")} />
-          ) : view === "decision-matric" ? (
-            <DecisionMatricConsole onClose={() => setView("home")} />
+          ) : view === "official-memos" ? (
+            <OfficialMemoConsole onClose={() => setView("home")} />
           ) : view === "thro-officers" ? (
             <ThroOfficersConsole onClose={() => setView("home")} />
           ) : view === "letter-copies" ? (

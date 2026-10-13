@@ -263,6 +263,7 @@ export async function listUnits(): Promise<UnitOption[]> {
       groupid: true,
       zoneId: true,
       active: true,
+      splitIntoSections: true,
     },
   })
   return rows.map((r) => ({
@@ -271,6 +272,7 @@ export async function listUnits(): Promise<UnitOption[]> {
     groupId: r.groupid,
     zoneId: r.zoneId,
     active: r.active,
+    splitIntoSections: r.splitIntoSections,
   }))
 }
 

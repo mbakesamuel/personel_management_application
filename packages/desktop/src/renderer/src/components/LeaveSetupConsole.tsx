@@ -1,6 +1,7 @@
 import type { User } from '@personel-management-app/shared'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createApiClient } from '../api/client'
+import { formatDisplayDate } from '../lib/format-date'
 import { LeaveLetterPanel } from './LeaveLetterPanel'
 import {
   FormDialog,
@@ -31,13 +32,6 @@ type LeaveSetupConsoleProps = {
   onClose: () => void
 }
 
-type TypeRow = {
-  id: number
-  code: string
-  name: string
-  requireAttachment: boolean
-  active: boolean
-}
 type PolicyRow = {
   id: number
   code: string
@@ -78,7 +72,6 @@ async function readError(res: Response, fallback: string) {
 
 export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
   const [status, setStatus] = useState<string | null>(null)
-  const [types, setTypes] = useState<TypeRow[]>([])
   const [policies, setPolicies] = useState<PolicyRow[]>([])
   const [entitlements, setEntitlements] = useState<EntitlementRow[]>([])
   const [rates, setRates] = useState<RateRow[]>([])
@@ -89,18 +82,15 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
   })
   const [motherSaving, setMotherSaving] = useState(false)
   const [motherStatus, setMotherStatus] = useState<string | null>(null)
+  const [supplyLastResumption, setSupplyLastResumption] = useState(false)
+  const [supplySaving, setSupplySaving] = useState(false)
+  const [supplyStatus, setSupplyStatus] = useState<string | null>(null)
   const [open, setOpen] = useState<
-    'type' | 'policy' | 'entitlement' | 'rate' | 'seniority' | null
+    'policy' | 'entitlement' | 'rate' | 'seniority' | null
   >(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [typeForm, setTypeForm] = useState({
-    code: '',
-    name: '',
-    requireAttachment: false,
-    active: true,
-  })
   const [policyForm, setPolicyForm] = useState({
     code: '',
     name: '',
@@ -130,16 +120,15 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
     setStatus(null)
     try {
       const client = await createApiClient()
-      const [typeRes, policyRes, entitlementRes, rateRes, bandRes, motherRes] =
+      const [policyRes, entitlementRes, rateRes, bandRes, motherRes, supplyRes] =
         await Promise.all([
-          client.leave.types.$get(),
           client.leave.policies.$get(),
           client.leave['entitlement-rules'].$get(),
           client.leave['monthly-rate-rules'].$get(),
           client.leave['seniority-rules'].$get(),
           client.leave['mother-settings'].$get(),
+          client.leave['processing-settings'].$get(),
         ])
-      if (!typeRes.ok) throw new Error(await readError(typeRes, 'Failed to load types'))
       if (!policyRes.ok) throw new Error(await readError(policyRes, 'Failed to load policies'))
       if (!entitlementRes.ok) {
         throw new Error(await readError(entitlementRes, 'Failed to load entitlement'))
@@ -149,6 +138,13 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
       if (!motherRes.ok) {
         throw new Error(await readError(motherRes, "Failed to load mother's leave"))
       }
+      if (!supplyRes.ok) {
+        throw new Error(await readError(supplyRes, 'Failed to load leave settings'))
+      }
+      const supply = (await supplyRes.json()) as {
+        userSupplyLastResumption: boolean
+      }
+      setSupplyLastResumption(supply.userSupplyLastResumption)
       const mother = (await motherRes.json()) as {
         daysPerChild: number
         maxAgeYears: number
@@ -157,7 +153,6 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
         daysPerChild: String(mother.daysPerChild),
         maxAgeYears: String(mother.maxAgeYears),
       })
-      setTypes((await typeRes.json()) as TypeRow[])
       setPolicies((await policyRes.json()) as PolicyRow[])
       setEntitlements((await entitlementRes.json()) as EntitlementRow[])
       setRates((await rateRes.json()) as RateRow[])
@@ -170,6 +165,25 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  async function saveSupply() {
+    setSupplySaving(true)
+    setSupplyStatus(null)
+    try {
+      const client = await createApiClient()
+      const res = await client.leave['processing-settings'].$put({
+        json: { userSupplyLastResumption: supplyLastResumption },
+      })
+      if (!res.ok) throw new Error(await readError(res, 'Save failed'))
+      const saved = (await res.json()) as { userSupplyLastResumption: boolean }
+      setSupplyLastResumption(saved.userSupplyLastResumption)
+      setSupplyStatus('Saved')
+    } catch (err) {
+      setSupplyStatus(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSupplySaving(false)
+    }
+  }
 
   async function saveMother() {
     setMotherSaving(true)
@@ -212,17 +226,7 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
       const client = await createApiClient()
       const param = editingId == null ? null : { id: String(editingId) }
       let res: Response
-      if (open === 'type') {
-        const json = {
-          code: typeForm.code,
-          name: typeForm.name,
-          requireAttachment: typeForm.requireAttachment,
-          active: typeForm.active,
-        }
-        res = param
-          ? await client.leave.types[':id'].$patch({ param, json })
-          : await client.leave.types.$post({ json })
-      } else if (open === 'policy') {
+      if (open === 'policy') {
         const json = { ...policyForm }
         res = param
           ? await client.leave.policies[':id'].$patch({ param, json })
@@ -274,7 +278,7 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
         <div>
           <h1 className="text-lg font-semibold">Leave setup</h1>
           <p className="text-sm text-muted-foreground">
-            Types, calculation policy, and the rules used for leave due.
+            Calculation policy and the rules used for leave due.
           </p>
         </div>
         <Button type="button" variant="outline" onClick={onClose}>
@@ -287,38 +291,6 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
         </p>
       ) : null}
 
-      <Section
-        title="Leave types"
-        onAdd={() => {
-          setEditingId(null)
-          setTypeForm({ code: '', name: '', requireAttachment: false, active: true })
-          setFormError(null)
-          setOpen('type')
-        }}
-      >
-        <SimpleTable
-          headers={['Code', 'Name', 'Attachment', 'Active']}
-          rows={types.map((row) => [
-            row.code,
-            row.name,
-            row.requireAttachment ? 'Required' : 'Optional',
-            row.active ? 'Yes' : 'No',
-          ])}
-          onEdit={(index) => {
-            const row = types[index]
-            if (!row) return
-            setEditingId(row.id)
-            setTypeForm({
-              code: row.code,
-              name: row.name,
-              requireAttachment: row.requireAttachment,
-              active: row.active,
-            })
-            setFormError(null)
-            setOpen('type')
-          }}
-        />
-      </Section>
       <Section
         title="Calculation policy"
         onAdd={() => {
@@ -340,7 +312,7 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
             row.code,
             row.name,
             row.method,
-            day(row.effectiveFrom),
+            formatDisplayDate(row.effectiveFrom),
             row.active ? 'Yes' : 'No',
           ])}
           onEdit={(index) => {
@@ -372,7 +344,7 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
           headers={['Annual days', 'From', 'Active']}
           rows={entitlements.map((row) => [
             String(row.annualDays),
-            day(row.effectiveFrom),
+            formatDisplayDate(row.effectiveFrom),
             row.active ? 'Yes' : 'No',
           ])}
           onEdit={(index) => {
@@ -402,7 +374,7 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
           headers={['Days per month', 'From', 'Active']}
           rows={rates.map((row) => [
             String(row.monthlyDays),
-            day(row.effectiveFrom),
+            formatDisplayDate(row.effectiveFrom),
             row.active ? 'Yes' : 'No',
           ])}
           onEdit={(index) => {
@@ -440,7 +412,7 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
             String(row.minYears),
             row.maxYears == null ? 'and above' : String(row.maxYears),
             String(row.bonusDays),
-            day(row.effectiveFrom),
+            formatDisplayDate(row.effectiveFrom),
             row.active ? 'Yes' : 'No',
           ])}
           onEdit={(index) => {
@@ -459,6 +431,41 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
           }}
         />
       </Section>
+
+      <section className="space-y-2 rounded-xl border bg-card p-4 text-card-foreground">
+        <div>
+          <h2 className="text-sm font-medium">Last resumption</h2>
+          <p className="text-sm text-muted-foreground">
+            When there is no leave history yet, let staff enter the last resumed
+            date on Apply leave. Off by default.
+          </p>
+        </div>
+        <form
+          className="flex flex-wrap items-center gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void saveSupply()
+          }}
+        >
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={supplyLastResumption}
+              onChange={(event) => {
+                setSupplyLastResumption(event.target.checked)
+                setSupplyStatus(null)
+              }}
+            />
+            Users supply the last resumed date
+          </label>
+          <Button type="submit" size="sm" disabled={supplySaving}>
+            {supplySaving ? 'Saving…' : 'Save'}
+          </Button>
+        </form>
+        {supplyStatus ? (
+          <p className="text-sm text-muted-foreground">{supplyStatus}</p>
+        ) : null}
+      </section>
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium">Mother&apos;s leave</h2>
@@ -524,64 +531,17 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
         }}
         title={
           `${editingId == null ? 'Add' : 'Change'} ${
-            open === 'type'
-              ? 'leave type'
-              : open === 'policy'
-                ? 'policy'
-                : open === 'entitlement'
-                  ? 'entitlement'
-                  : open === 'rate'
-                    ? 'monthly rate'
-                    : 'seniority band'
+            open === 'policy'
+              ? 'policy'
+              : open === 'entitlement'
+                ? 'entitlement'
+                : open === 'rate'
+                  ? 'monthly rate'
+                  : 'seniority band'
           }`
         }
       >
         <FormDialogError>{formError}</FormDialogError>
-        {open === 'type' ? (
-          <>
-            <FormDialogRow label="Code" htmlFor="leave-type-code">
-              <Input
-                id="leave-type-code"
-                value={typeForm.code}
-                onChange={(event) =>
-                  setTypeForm((prev) => ({ ...prev, code: event.target.value }))
-                }
-              />
-            </FormDialogRow>
-            <FormDialogRow label="Name" htmlFor="leave-type-name">
-              <Input
-                id="leave-type-name"
-                value={typeForm.name}
-                onChange={(event) =>
-                  setTypeForm((prev) => ({ ...prev, name: event.target.value }))
-                }
-              />
-            </FormDialogRow>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={typeForm.requireAttachment}
-                onChange={(event) =>
-                  setTypeForm((prev) => ({
-                    ...prev,
-                    requireAttachment: event.target.checked,
-                  }))
-                }
-              />
-              Require attachment
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={typeForm.active}
-                onChange={(event) =>
-                  setTypeForm((prev) => ({ ...prev, active: event.target.checked }))
-                }
-              />
-              Active
-            </label>
-          </>
-        ) : null}
         {open === 'policy' ? (
           <>
             <FormDialogRow label="Code" htmlFor="leave-policy-code">

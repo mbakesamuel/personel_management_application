@@ -28,8 +28,8 @@ import { prisma } from '../db.js'
 import {
   formatEmployeeName,
   resolveLiveEmployees,
-  unitMatchIds,
 } from './live-employee.service.js'
+import { resolvePinnedUnitSignatory } from './official-memo.service.js'
 import {
   PersonnelConflictError,
   PersonnelNotFoundError,
@@ -46,17 +46,14 @@ async function signatoryAsOf(asOf: Date): Promise<{
   signatoryName: string | null
   signatoryTitle: string | null
 }> {
-  const row = await prisma.tbl_decision_assignment.findFirst({
-    where: {
-      level_code: 'UNIT_MANAGER',
-      tbl_unit_id: { in: unitMatchIds([MEMO_SIGNATORY_UNIT]) },
-      effdate: { lte: asOf },
-    },
-    orderBy: [{ effdate: 'desc' }, { id: 'desc' }],
+  const holder = await resolvePinnedUnitSignatory({
+    code: 'COMMUNICATION',
+    unitId: MEMO_SIGNATORY_UNIT,
+    asOf,
   })
   return {
-    signatoryName: row?.signatory.trim() || null,
-    signatoryTitle: row?.title.trim() || null,
+    signatoryName: holder.name,
+    signatoryTitle: holder.title,
   }
 }
 

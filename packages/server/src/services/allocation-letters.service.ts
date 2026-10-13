@@ -4,15 +4,17 @@ import type {
   AllocationLetterRow,
   AllocationLettersResponse,
 } from '@personel-management-app/shared'
-import { formatMemoDate } from '@personel-management-app/shared'
+import { formatMemoDate, parseCatEchCode } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
 import { resolveLetterCcLabels } from './letter-cc.service.js'
 import {
   resolveLiveEmployee,
   resolveLiveEmployees,
   unitCodesMatch,
+  unitMatchIds,
 } from './live-employee.service.js'
-import { resolveSectionThroTitle } from './section-thro.service.js'
+import { resolveOfficialMemoSignatory } from './official-memo.service.js'
+import { resolveMemoThroTitle } from './section-thro.service.js'
 
 const FROM_TITLE = 'General Manager'
 const LETTER_REFS = ['GM/FIN/9', 'MC/FIN/19'] as const
@@ -37,41 +39,31 @@ function toDateOnlyLabel(value: Date): string {
   return formatMemoDate(value)
 }
 
-async function resolveGmSignatory(asOf: Date): Promise<{
-  name: string | null
-  title: string | null
-}> {
-  const assignment = await prisma.tbl_decision_assignment.findFirst({
-    where: {
-      level_code: 'GM',
-      effdate: { lte: asOf },
-    },
-    orderBy: [{ effdate: 'desc' }, { id: 'desc' }],
-  })
-  if (!assignment) {
-    return { name: null, title: 'GENERAL MANAGER' }
-  }
-  return {
-    name: assignment.signatory?.trim() || null,
-    title: (assignment.title?.trim() || 'GENERAL MANAGER').toUpperCase(),
-  }
-}
-
-async function resolveThroTitle(input: {
-  sectionId: number | null
-  unitName: string | null
+async function resolveAllocationSignatory(input: {
+  category: string | null
+  unitId: string | null
   asOf: Date
-}): Promise<string> {
-  if (input.sectionId != null) {
-    const title = await resolveSectionThroTitle({
-      sectionId: input.sectionId,
-      asOf: input.asOf,
+}): Promise<{ name: string | null; title: string | null }> {
+  const category = input.category ? parseCatEchCode(input.category).catNum : null
+  let groupId: string | null = null
+  if (input.unitId) {
+    const unit = await prisma.tbl_unit.findFirst({
+      where: { id: { in: unitMatchIds([input.unitId]) } },
+      select: { groupid: true },
     })
-    if (title && title !== 'HEAD OF SECTION') return title
+    groupId = unit?.groupid ?? null
   }
-  const unit = input.unitName?.trim()
-  if (unit) return `EM, ${unit}`.toUpperCase()
-  return 'EM'
+  const signer = await resolveOfficialMemoSignatory({
+    code: 'ALLOWANCE_ALLOCATION',
+    category,
+    unitId: input.unitId,
+    groupId,
+    asOf: input.asOf,
+  })
+  return {
+    name: signer?.name ?? null,
+    title: signer?.title ?? null,
+  }
 }
 
 async function unitIdsForScope(
@@ -102,7 +94,7 @@ export async function buildAllocationLetters(
 
   const scopeUnitIds = await unitIdsForScope(scopeSectionIds)
   if (scopeUnitIds && scopeUnitIds.length === 0) {
-    return { letters: [] }
+    return { letters: [], ccLayout: 'COLUMN' }
   }
 
   let filterUnitId = query.unitId?.trim() || null
@@ -113,19 +105,19 @@ export async function buildAllocationLetters(
       where: { id: filterSectionId },
       select: { id: true, tbl_unit_id: true },
     })
-    if (!section) return { letters: [] }
+    if (!section) return { letters: [], ccLayout: 'COLUMN' }
     if (
       scopeSectionIds &&
       !scopeSectionIds.includes(filterSectionId)
     ) {
-      return { letters: [] }
+      return { letters: [], ccLayout: 'COLUMN' }
     }
     filterUnitId = section.tbl_unit_id?.trim() || filterUnitId
   }
 
   if (filterUnitId && scopeUnitIds) {
     const allowed = scopeUnitIds.some((id) => unitCodesMatch(id, filterUnitId!))
-    if (!allowed) return { letters: [] }
+    if (!allowed) return { letters: [], ccLayout: 'COLUMN' }
   }
 
   const allocations = await prisma.tbl_allowance_allocation.findMany({
@@ -142,12 +134,11 @@ export async function buildAllocationLetters(
   })
 
   if (allocations.length === 0) {
-    return { letters: [] }
+    return { letters: [], ccLayout: 'COLUMN' }
   }
 
   const matricules = [...new Set(allocations.map((row) => row.matricule))]
   const liveByMatric = await resolveLiveEmployees(matricules)
-  const gm = await resolveGmSignatory(asOf)
 
   const byMatric = new Map<string, typeof allocations>()
   for (const row of allocations) {
@@ -188,10 +179,16 @@ export async function buildAllocationLetters(
     const positionTitle = designation || 'your current position'
     const unitId = live?.codeUnit ?? null
     const unitName = live?.unitName ?? null
+    const signer = await resolveAllocationSignatory({
+      category: live?.category ?? null,
+      unitId,
+      asOf,
+    })
 
-    const throTitle = await resolveThroTitle({
+    const throTitle = await resolveMemoThroTitle({
+      unitId,
       sectionId: filterSectionId,
-      unitName,
+      signatoryTitle: signer.title,
       asOf,
     })
 
@@ -236,12 +233,20 @@ export async function buildAllocationLetters(
       rows: tableRows,
       conditions: [...CONDITIONS],
       closingLine: CLOSING_LINE,
-      signatoryName: gm.name,
-      signatoryTitle: gm.title,
+      signatoryName: signer.name,
+      signatoryTitle: signer.title ?? 'GENERAL MANAGER',
       cc,
     })
   }
 
   letters.sort((a, b) => a.matricule.localeCompare(b.matricule))
-  return { letters }
+  const letterSettings = await prisma.tbl_leave_letter_setting.upsert({
+    where: { id: 1 },
+    create: { id: 1 },
+    update: {},
+  })
+  return {
+    letters,
+    ccLayout: letterSettings.ccLayout === 'ROW' ? 'ROW' : 'COLUMN',
+  }
 }

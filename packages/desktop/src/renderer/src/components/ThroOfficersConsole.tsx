@@ -137,6 +137,9 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
 
   const selectedSection =
     sections.find((section) => section.id === sectionId) ?? null;
+  const selectedUnit = units.find((unit) => unit.id === unitId) ?? null;
+  const signatoryThroMode =
+    selectedUnit != null && !selectedUnit.splitIntoSections;
 
   const loadUnits = useCallback(async () => {
     const client = await createApiClient();
@@ -163,7 +166,7 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
   }, [unitId]);
 
   const loadAssignments = useCallback(async () => {
-    if (batchMode || sectionId == null) {
+    if (signatoryThroMode || batchMode || sectionId == null) {
       if (!batchMode) setAssignments([]);
       return;
     }
@@ -185,7 +188,7 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
     } finally {
       setLoading(false);
     }
-  }, [sectionId, batchMode]);
+  }, [sectionId, batchMode, signatoryThroMode]);
 
   const loadBatchGrid = useCallback(async () => {
     if (!unitId) {
@@ -238,6 +241,12 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
   }, [loadAssignments]);
 
   useEffect(() => {
+    if (!signatoryThroMode) return;
+    setBatchMode(false);
+    setBatchRows([]);
+  }, [signatoryThroMode]);
+
+  useEffect(() => {
     if (!batchMode) return;
     if (!unitId) {
       setBatchMode(false);
@@ -248,6 +257,7 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
   }, [batchMode, unitId, loadBatchGrid]);
 
   function openCreate() {
+    if (signatoryThroMode) return;
     if (sectionId == null) {
       setStatus("Select a section first.");
       return;
@@ -257,7 +267,7 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
     setDialogOpen(true);
   }
 
-  function openEdit(row: SectionThroAssignment) {
+  function openEdit(row: { id: number; name: string; title: string; effdate: string }) {
     setSelectedId(row.id);
     setDialogMode("edit");
     setForm({
@@ -268,14 +278,14 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
     setDialogOpen(true);
   }
 
-  function requestDelete(row: SectionThroAssignment) {
+  function requestDelete(row: { id: number }) {
     setSelectedId(row.id);
     setConfirmDeleteOpen(true);
   }
 
   function openBatch() {
-    if (!unitId) {
-      setStatus("Select a unit first.");
+    if (signatoryThroMode || !unitId) {
+      setStatus("Select a unit that is split into sections.");
       return;
     }
     setStatus(null);
@@ -305,13 +315,13 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
   }
 
   async function handleSave() {
-    if (sectionId == null) return;
+    if (signatoryThroMode || sectionId == null) return;
     setLoading(true);
     setStatus(null);
     try {
       const client = await createApiClient();
       const body = {
-        sectionId,
+        sectionId: sectionId as number,
         name: form.name.trim(),
         title: form.title.trim(),
         effdate: form.effdate,
@@ -401,7 +411,7 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
       <h2 className="m-0 shrink-0 text-xl font-bold">Section Officers i/c</h2>
 
       <Toolbar>
-        {batchMode ? (
+        {signatoryThroMode ? null : batchMode ? (
           <Button
             type="button"
             size="sm"
@@ -437,9 +447,11 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
       <Card className="shrink-0 py-3">
         <CardContent className="grid gap-3 px-3 sm:grid-cols-3">
           <p className="text-sm text-muted-foreground sm:col-span-3">
-            {batchMode
-              ? "Enter a name, title, and effective date for each section in the unit. Rows without a name are skipped."
-              : "Assign Section Officers i/c for each section, with an effective date."}
+            {signatoryThroMode
+              ? "This unit is not split into sections. The Through line on memos uses the title of the memo signatory."
+              : batchMode
+                ? "Enter a name, title, and effective date for each section in the unit. Rows without a name are skipped."
+                : "Assign Section Officers i/c for each section, with an effective date."}
           </p>
           <div className="grid gap-1">
             <Label>Unit</Label>
@@ -466,7 +478,7 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
               </SelectContent>
             </Select>
           </div>
-          {batchMode ? (
+          {signatoryThroMode ? null : batchMode ? (
             <div className="grid gap-1">
               <Label htmlFor="thro-batch-date">Apply date to all</Label>
               <Input
@@ -500,6 +512,7 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
               </Select>
             </div>
           )}
+          {signatoryThroMode ? null : (
           <label className="flex items-center gap-2 self-end pb-2 text-sm">
             <input
               type="checkbox"
@@ -513,11 +526,17 @@ export function ThroOfficersConsole({ onClose }: ThroOfficersConsoleProps) {
             />
             Batch entry
           </label>
+          )}
         </CardContent>
       </Card>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-md border bg-background">
-          {batchMode ? (
+          {signatoryThroMode ? (
+            <p className="px-3 py-6 text-sm text-muted-foreground">
+              Through officers are not entered here. Memos for this unit take
+              the Through line from the memo signatory title.
+            </p>
+          ) : batchMode ? (
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-muted">
                 <TableRow>

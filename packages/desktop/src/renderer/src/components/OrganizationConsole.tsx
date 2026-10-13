@@ -81,6 +81,7 @@ type UnitForm = {
   groupId: string
   zoneId: string
   active: boolean
+  splitIntoSections: boolean
 }
 type SectionForm = { section: string; unitId: string; active: boolean }
 
@@ -167,6 +168,7 @@ export function OrganizationConsole({
     groupId: '',
     zoneId: '',
     active: true,
+    splitIntoSections: false,
   })
   const [sectionForm, setSectionForm] = useState<SectionForm>({
     section: '',
@@ -442,6 +444,7 @@ export function OrganizationConsole({
         groupId: groupForZone,
         zoneId: firstZone,
         active: true,
+        splitIntoSections: false,
       })
     }
     if (tab === 'sections') {
@@ -485,6 +488,7 @@ export function OrganizationConsole({
       groupId: row.groupId,
       zoneId: row.zoneId,
       active: row.active,
+      splitIntoSections: row.splitIntoSections,
     })
     setDialogOpen(true)
   }
@@ -580,6 +584,7 @@ export function OrganizationConsole({
                   groupId: unitForm.groupId,
                   zoneId: unitForm.zoneId,
                   active: unitForm.active,
+                  splitIntoSections: unitForm.splitIntoSections,
                 },
               })
             : await client.organization.units.$post({
@@ -589,6 +594,7 @@ export function OrganizationConsole({
                   groupId: unitForm.groupId,
                   zoneId: unitForm.zoneId,
                   active: unitForm.active,
+                  splitIntoSections: unitForm.splitIntoSections,
                 },
               })
       } else {
@@ -729,6 +735,10 @@ export function OrganizationConsole({
                   viewState.row.groupId,
               ],
               ['Status', statusLabel(viewState.row.active)],
+              [
+                'Split into sections',
+                viewState.row.splitIntoSections ? 'Yes' : 'No',
+              ],
             ]
           : [
               ['ID', String(viewState.row.id)],
@@ -1337,6 +1347,22 @@ export function OrganizationConsole({
                   setUnitForm((prev) => ({ ...prev, active }))
                 }
               />
+            </FormDialogRow>
+            <FormDialogRow label="Sections">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={unitForm.splitIntoSections}
+                  onChange={(event) =>
+                    setUnitForm((prev) => ({
+                      ...prev,
+                      splitIntoSections: event.target.checked,
+                    }))
+                  }
+                />
+                This unit is split into sections
+              </label>
             </FormDialogRow>
           </>
         ) : null}

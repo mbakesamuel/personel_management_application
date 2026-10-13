@@ -10,6 +10,7 @@ import { dashboard } from './routes/dashboard.js'
 import { dashboardGroups } from './routes/dashboard-groups.js'
 import { auth } from './routes/auth.js'
 import { decisionLevels } from './routes/decision-levels.js'
+import { officialMemos } from './routes/official-memos.js'
 import { financialYears } from './routes/financial-years.js'
 import { health } from './routes/health.js'
 import { letterCc } from './routes/letter-cc.js'
@@ -22,6 +23,7 @@ import { reports } from './routes/reports.js'
 import { roles } from './routes/roles.js'
 import { jurisdictions } from './routes/jurisdictions.js'
 import { sectionThro } from './routes/section-thro.js'
+import { unitThro } from './routes/unit-thro.js'
 import { users } from './routes/users.js'
 import { leave } from './routes/leave.js'
 import { permissions } from './routes/permissions.js'
@@ -44,7 +46,9 @@ const app = new Hono<{ Variables: AppVariables }>()
   .route('/allowance-matrix', allowanceMatrix)
   .route('/letter-cc', letterCc)
   .route('/decision-levels', decisionLevels)
+  .route('/official-memos', officialMemos)
   .route('/section-thro', sectionThro)
+  .route('/unit-thro', unitThro)
   .route('/appraisals', appraisals)
   .route('/reports', reports)
   .route('/dashboard', dashboard)

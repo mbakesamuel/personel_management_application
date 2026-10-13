@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import {
+  canChangeAccess,
+  canViewAccess,
   EmployeeCreateSchema,
   EmployeeListQuerySchema,
   EmployeeMemoCreateSchema,
@@ -9,6 +11,7 @@ import {
   EmployeeSanctionUpdateSchema,
   EmployeeUpdateSchema,
   WorkflowReviewSchema,
+  type User,
 } from '@personel-management-app/shared'
 import { z } from 'zod'
 import type { AppVariables } from '../middleware/current-user.js'
@@ -452,18 +455,56 @@ function childRouter<TCreate, TUpdate>(opts: {
     )
 }
 
-const employees = new Hono<{ Variables: AppVariables }>()
-  .use('*', async (c, next) => {
-    try {
-      await requirePermission(c.get('currentUser'), 'canPersonnel')
-    } catch (err) {
-      if (err instanceof ForbiddenError) {
-        return c.json({ error: err.message }, 403)
-      }
-      throw err
+function assertPersonnelRoute(user: User, method: string, url: URL) {
+  const level = user.permissions.personnelAccess
+  if (level === 'NONE') {
+    throw new ForbiddenError('You do not have permission for this action')
+  }
+  const path = url.pathname.replace(/\/+$/, '') || '/'
+  const rest = path.startsWith('/personnel')
+    ? path.slice('/personnel'.length) || '/'
+    : path
+  const segments = rest.split('/').filter(Boolean)
+
+  if (segments[0] === 'lookups') {
+    if (method !== 'GET' && !canChangeAccess(level)) {
+      throw new ForbiddenError('You do not have permission for this action')
     }
-    await next()
-  })
+    return
+  }
+
+  const isReview =
+    method === 'POST' &&
+    (rest.endsWith('/validate') || rest.endsWith('/reject'))
+  if (isReview) {
+    if (!canViewAccess(level) || !user.permissions.canValidate) {
+      throw new ForbiddenError('You do not have permission for this action')
+    }
+    return
+  }
+
+  if (method === 'GET') {
+    if (rest === '/employees' || rest === '/employees/options') {
+      if (!canViewAccess(level)) {
+        throw new ForbiddenError('You do not have permission for this action')
+      }
+      return
+    }
+    if (segments.length === 1 && segments[0] !== 'employees') {
+      const matricule = url.searchParams.get('matricule')?.trim()
+      if (!matricule && !canViewAccess(level)) {
+        throw new ForbiddenError('You do not have permission for this action')
+      }
+    }
+    return
+  }
+
+  if (!canChangeAccess(level)) {
+    throw new ForbiddenError('You do not have permission for this action')
+  }
+}
+
+const employees = new Hono<{ Variables: AppVariables }>()
   .get('/', zValidator('query', EmployeeListQuerySchema), async (c) =>
     handle(c, async () =>
       employeeService.list(
@@ -554,6 +595,21 @@ const employees = new Hono<{ Variables: AppVariables }>()
   )
 
 export const personnel = new Hono<{ Variables: AppVariables }>()
+  .use('*', async (c, next) => {
+    try {
+      assertPersonnelRoute(
+        c.get('currentUser'),
+        c.req.method,
+        new URL(c.req.url),
+      )
+    } catch (err) {
+      if (err instanceof ForbiddenError) {
+        return c.json({ error: err.message }, 403)
+      }
+      throw err
+    }
+    await next()
+  })
   .route('/employees', employees)
   .route('/lookups', personnelLookups)
   .route(

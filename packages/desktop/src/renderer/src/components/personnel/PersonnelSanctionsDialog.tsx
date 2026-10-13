@@ -1,4 +1,11 @@
-import { canEditWorkflowStatus, type EmployeeOption, type User, type WorkflowStatus } from '@personel-management-app/shared'
+import {
+  canChangeAccess,
+  canEditWorkflowStatus,
+  canViewAccess,
+  type EmployeeOption,
+  type User,
+  type WorkflowStatus,
+} from '@personel-management-app/shared'
 import { Check, Download, Paperclip, Pencil, Plus, Trash2, X, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createApiClient } from '../../api/client'
@@ -168,7 +175,10 @@ export function PersonnelSanctionsDialog({
   } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
 
-  const canReview = currentUser.permissions.canValidate
+  const canChange = canChangeAccess(currentUser.permissions.personnelAccess)
+  const canReview =
+    currentUser.permissions.canValidate &&
+    canViewAccess(currentUser.permissions.personnelAccess)
   const selectedMemo = useMemo(
     () => memos.find((row) => row.id === selectedId) ?? null,
     [memos, selectedId],
@@ -553,7 +563,7 @@ export function PersonnelSanctionsDialog({
               size="sm"
               variant="outline"
               className="w-full justify-start"
-              disabled={loading}
+              disabled={loading || !canChange}
               onClick={openCreateMemo}
             >
               <Plus className="size-4" />
@@ -564,7 +574,7 @@ export function PersonnelSanctionsDialog({
               size="sm"
               variant="outline"
               className="w-full justify-start"
-              disabled={loading || !selectedMemo}
+              disabled={loading || !canChange || !selectedMemo}
               onClick={openEditMemo}
             >
               <Pencil className="size-4" />
@@ -620,7 +630,7 @@ export function PersonnelSanctionsDialog({
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={loading || !documentsEditable}
+                disabled={loading || !canChange || !documentsEditable}
                 onClick={() => fileRef.current?.click()}
               >
                 <Paperclip className="size-4" />
@@ -667,7 +677,7 @@ export function PersonnelSanctionsDialog({
                             type="button"
                             size="icon-sm"
                             variant="ghost"
-                            disabled={!documentsEditable || loading}
+                            disabled={!canChange || !documentsEditable || loading}
                             onClick={() => void removeFile(file.id)}
                           >
                             <Trash2 className="size-4" />
@@ -690,7 +700,9 @@ export function PersonnelSanctionsDialog({
                   size="sm"
                   variant="outline"
                   disabled={
-                    loading || selectedMemo?.workflowStatus !== 'VALIDATED'
+                    loading ||
+                    !canChange ||
+                    selectedMemo?.workflowStatus !== 'VALIDATED'
                   }
                   onClick={openCreateSanction}
                 >
@@ -701,7 +713,7 @@ export function PersonnelSanctionsDialog({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={loading || !selectedSanction}
+                  disabled={loading || !canChange || !selectedSanction}
                   onClick={openEditSanction}
                 >
                   <Pencil className="size-4" />
@@ -869,7 +881,7 @@ export function PersonnelSanctionsDialog({
           primaryLabel={loading ? 'Saving…' : 'Save'}
           onPrimary={() => void saveMemo()}
           onCancel={() => setMemoOpen(false)}
-          primaryDisabled={loading}
+          primaryDisabled={loading || !canChange}
           cancelDisabled={loading}
         />
       </FormDialog>
@@ -937,7 +949,7 @@ export function PersonnelSanctionsDialog({
           primaryLabel={loading ? 'Saving…' : 'Save'}
           onPrimary={() => void saveSanction()}
           onCancel={() => setSanctionOpen(false)}
-          primaryDisabled={loading}
+          primaryDisabled={loading || !canChange}
           cancelDisabled={loading}
         />
       </FormDialog>

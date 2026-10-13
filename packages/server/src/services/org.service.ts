@@ -53,6 +53,7 @@ function mapUnit(row: {
   groupid: string
   zoneId: string
   active: boolean
+  splitIntoSections: boolean
 }): UnitOption {
   return {
     id: row.id,
@@ -60,6 +61,7 @@ function mapUnit(row: {
     groupId: row.groupid,
     zoneId: row.zoneId,
     active: row.active,
+    splitIntoSections: row.splitIntoSections,
   }
 }
 
@@ -286,6 +288,7 @@ export async function listOrgUnits(): Promise<UnitOption[]> {
       groupid: true,
       zoneId: true,
       active: true,
+      splitIntoSections: true,
     },
   })
   return rows.map(mapUnit)
@@ -316,6 +319,7 @@ export async function createUnit(input: UnitUpsertInput): Promise<UnitOption> {
         groupid: zone.groupId,
         zoneId: zone.id,
         active: input.active ?? true,
+        splitIntoSections: input.splitIntoSections ?? false,
         createdat: now,
         updatedat: now,
       },
@@ -325,6 +329,7 @@ export async function createUnit(input: UnitUpsertInput): Promise<UnitOption> {
         groupid: true,
         zoneId: true,
         active: true,
+        splitIntoSections: true,
       },
     })
     return mapUnit(row)
@@ -371,6 +376,7 @@ export async function updateUnit(
         groupid: zone.groupId,
         zoneId: zone.id,
         active: input.active ?? true,
+        splitIntoSections: input.splitIntoSections ?? false,
         updatedat: new Date(),
       },
       select: {
@@ -379,6 +385,7 @@ export async function updateUnit(
         groupid: true,
         zoneId: true,
         active: true,
+        splitIntoSections: true,
       },
     })
     return mapUnit(row)

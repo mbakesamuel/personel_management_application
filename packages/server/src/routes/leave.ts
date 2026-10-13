@@ -1,10 +1,13 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import {
+  LeaveDueQuerySchema,
   LeaveEntitlementCreateSchema,
   LeaveEntitlementUpdateSchema,
   LeaveLetterSettingSchema,
   LeaveMotherSettingSchema,
+  LeaveProcessingSettingSchema,
+  LeaveAccrualAdjustSchema,
   LeaveProcessSchema,
   LeaveMonthlyRateCreateSchema,
   LeaveMonthlyRateUpdateSchema,
@@ -17,13 +20,18 @@ import {
   LeaveSeniorityUpdateSchema,
   LeaveTravelAllowanceCreateSchema,
   LeaveTravelAllowanceUpdateSchema,
+  PermissionDurationCreateSchema,
+  PermissionDurationUpdateSchema,
   PublicHolidayCreateSchema,
   PublicHolidayUpdateSchema,
+  LeaveDocumentRequirementReplaceSchema,
   LeaveTypeCreateSchema,
   LeaveTypeUpdateSchema,
   WorkflowReviewSchema,
+  isAnnualLeaveType,
 } from '@personel-management-app/shared'
 import { z } from 'zod'
+import type { User } from '@personel-management-app/shared'
 import type { AppVariables } from '../middleware/current-user.js'
 import { prisma } from '../db.js'
 import {
@@ -32,6 +40,7 @@ import {
   requirePermission,
   unitIdsForUser,
 } from '../services/authz.service.js'
+import { listLeaveDue } from '../services/leave-due.service.js'
 import { leaveRequestService, leaveSetupService } from '../services/leave.service.js'
 import { unitMatchIds } from '../services/live-employee.service.js'
 import {
@@ -48,6 +57,20 @@ const AttachmentParam = z.object({
 const MatriculeQuery = z.object({
   matricule: z.string().min(1).optional(),
 })
+
+const IMAGE_CONTENT_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+}
+
+function imageContentType(name: string) {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  return IMAGE_CONTENT_TYPES[ext] ?? 'application/octet-stream'
+}
 
 function mapError(err: unknown) {
   if (err instanceof ForbiddenError) {
@@ -87,6 +110,42 @@ async function handle<T>(
 
 function actorId(c: { get: (key: 'currentUser') => { id: number } }) {
   return c.get('currentUser').id
+}
+
+type LeaveFlag =
+  | 'canLeave'
+  | 'canLeaveRequests'
+  | 'canPermissionRequests'
+  | 'canLeaveDue'
+
+function flagsForLeaveRoute(method: string, pathname: string): LeaveFlag[] {
+  const path = pathname.replace(/\/+$/, '') || '/'
+  const rest = path.startsWith('/leave') ? path.slice('/leave'.length) || '/' : path
+  if (rest === '/due') return ['canLeaveDue']
+  if (rest === '/absence-report') {
+    return ['canLeaveRequests', 'canPermissionRequests']
+  }
+  if (method === 'GET' && rest === '/types') {
+    return ['canLeave', 'canLeaveRequests', 'canPermissionRequests']
+  }
+  if (method === 'GET' && rest === '/processing-settings') {
+    return ['canLeave', 'canLeaveRequests']
+  }
+  if (
+    rest === '/employee' ||
+    rest === '/history' ||
+    rest === '/accrual-account' ||
+    rest.startsWith('/requests')
+  ) {
+    return ['canLeaveRequests']
+  }
+  return ['canLeave']
+}
+
+function assertLeaveRoute(user: User, method: string, pathname: string) {
+  const flags = flagsForLeaveRoute(method, pathname)
+  if (flags.some((flag) => user.permissions[flag])) return
+  throw new ForbiddenError('You do not have permission for this action')
 }
 
 async function matriculesInScope(user: AppVariables['currentUser']) {
@@ -130,7 +189,7 @@ function setupRoutes<TCreate, TUpdate>(opts: {
 export const leave = new Hono<{ Variables: AppVariables }>()
   .use('*', async (c, next) => {
     try {
-      await requirePermission(c.get('currentUser'), 'canLeave')
+      assertLeaveRoute(c.get('currentUser'), c.req.method, new URL(c.req.url).pathname)
     } catch (err) {
       if (err instanceof ForbiddenError) {
         return c.json({ error: err.message }, 403)
@@ -147,7 +206,18 @@ export const leave = new Hono<{ Variables: AppVariables }>()
       update: (id, data) => leaveSetupService.types.update(id, data),
       createSchema: LeaveTypeCreateSchema,
       updateSchema: LeaveTypeUpdateSchema,
-    }),
+    }).put(
+      '/:id/document-requirements',
+      zValidator('param', IdParam),
+      zValidator('json', LeaveDocumentRequirementReplaceSchema),
+      async (c) =>
+        handle(c, () =>
+          leaveSetupService.documentRequirements.replace(
+            c.req.valid('param').id,
+            c.req.valid('json'),
+          ),
+        ),
+    ),
   )
   .route(
     '/policies',
@@ -200,6 +270,49 @@ export const leave = new Hono<{ Variables: AppVariables }>()
     }),
   )
   .route(
+    '/permission-durations',
+    new Hono<{ Variables: AppVariables }>()
+      .get(
+        '/',
+        zValidator(
+          'query',
+          z.object({
+            leaveTypeId: z.coerce.number().int().positive().optional(),
+          }),
+        ),
+        async (c) =>
+          handle(c, () =>
+            leaveSetupService.permissionDurations.list(
+              c.req.valid('query').leaveTypeId,
+            ),
+          ),
+      )
+      .post('/', zValidator('json', PermissionDurationCreateSchema), async (c) =>
+        handle(
+          c,
+          () => leaveSetupService.permissionDurations.create(c.req.valid('json')),
+          201,
+        ),
+      )
+      .patch(
+        '/:id',
+        zValidator('param', IdParam),
+        zValidator('json', PermissionDurationUpdateSchema),
+        async (c) =>
+          handle(c, () =>
+            leaveSetupService.permissionDurations.update(
+              c.req.valid('param').id,
+              c.req.valid('json'),
+            ),
+          ),
+      )
+      .delete('/:id', zValidator('param', IdParam), async (c) =>
+        handle(c, () =>
+          leaveSetupService.permissionDurations.remove(c.req.valid('param').id),
+        ),
+      ),
+  )
+  .route(
     '/holidays',
     new Hono<{ Variables: AppVariables }>()
       .get('/', async (c) => handle(c, () => leaveSetupService.holidays.list()))
@@ -224,6 +337,17 @@ export const leave = new Hono<{ Variables: AppVariables }>()
         ),
       ),
   )
+  .get('/processing-settings', async (c) =>
+    handle(c, () => leaveSetupService.processingSettings.get()),
+  )
+  .put(
+    '/processing-settings',
+    zValidator('json', LeaveProcessingSettingSchema),
+    async (c) =>
+      handle(c, () =>
+        leaveSetupService.processingSettings.update(c.req.valid('json')),
+      ),
+  )
   .get('/mother-settings', async (c) =>
     handle(c, () => leaveSetupService.motherSettings.get()),
   )
@@ -246,12 +370,49 @@ export const leave = new Hono<{ Variables: AppVariables }>()
         leaveSetupService.letterSettings.update(c.req.valid('json')),
       ),
   )
+  .post(
+    '/accrual-account',
+    zValidator('json', LeaveAccrualAdjustSchema),
+    async (c) =>
+      handle(c, async () => {
+        await requirePermission(c.get('currentUser'), 'canLeaveValidate')
+        const data = c.req.valid('json')
+        await assertEmployeeInScope(c.get('currentUser'), data.matricule)
+        return leaveRequestService.adjustAccrual(actorId(c), data)
+      }),
+  )
+  .get(
+    '/employee',
+    zValidator('query', z.object({ matricule: z.string().trim().min(1) })),
+    async (c) =>
+      handle(c, async () => {
+        const { matricule } = c.req.valid('query')
+        await assertEmployeeInScope(c.get('currentUser'), matricule)
+        return leaveRequestService.employee(matricule)
+      }),
+  )
   .get('/history', zValidator('query', MatriculeQuery), async (c) =>
     handle(c, async () => {
       const { matricule } = c.req.valid('query')
       if (!matricule) return []
       await assertEmployeeInScope(c.get('currentUser'), matricule)
       return leaveRequestService.history(matricule)
+    }),
+  )
+  .get('/due', zValidator('query', LeaveDueQuerySchema), async (c) =>
+    handle(c, () => listLeaveDue(c.get('currentUser'), c.req.valid('query'))),
+  )
+  .get('/absence-report', zValidator('query', MatriculeQuery), async (c) =>
+    handle(c, async () => {
+      const { matricule } = c.req.valid('query')
+      const user = c.get('currentUser')
+      if (matricule) {
+        await assertEmployeeInScope(user, matricule)
+        return leaveRequestService.absenceReport({ matricule })
+      }
+      return leaveRequestService.absenceReport({
+        matricules: await matriculesInScope(user),
+      })
     }),
   )
   .get('/requests', zValidator('query', MatriculeQuery), async (c) =>
@@ -301,10 +462,17 @@ export const leave = new Hono<{ Variables: AppVariables }>()
       const existing = await leaveRequestService.get(id)
       await assertEmployeeInScope(c.get('currentUser'), existing.matricule)
       const body = await c.req.json().catch(() => ({}))
-      return leaveRequestService.validate(
+      if (isAnnualLeaveType(existing.leaveType)) {
+        return leaveRequestService.validate(
+          actorId(c),
+          id,
+          LeaveProcessSchema.parse(body),
+        )
+      }
+      return leaveRequestService.validateFixed(
         actorId(c),
         id,
-        LeaveProcessSchema.parse(body),
+        WorkflowReviewSchema.parse(body),
       )
     }),
   )
@@ -315,6 +483,17 @@ export const leave = new Hono<{ Variables: AppVariables }>()
       await assertEmployeeInScope(c.get('currentUser'), existing.matricule)
       return leaveRequestService.memo(id)
     }),
+  )
+  .get(
+    '/requests/:id/calculation-report',
+    zValidator('param', IdParam),
+    async (c) =>
+      handle(c, async () => {
+        const id = c.req.valid('param').id
+        const existing = await leaveRequestService.get(id)
+        await assertEmployeeInScope(c.get('currentUser'), existing.matricule)
+        return leaveRequestService.calculationReport(id)
+      }),
   )
   .post('/requests/:id/reject', zValidator('param', IdParam), async (c) =>
     handle(c, async () => {
@@ -356,7 +535,15 @@ export const leave = new Hono<{ Variables: AppVariables }>()
       if (!(file instanceof File)) {
         throw new PersonnelWorkflowError('Choose a file to attach', 400)
       }
-      return leaveRequestService.addAttachment(actorId(c), id, file)
+      const rawRequirement = body.requirementId
+      const requirementId =
+        typeof rawRequirement === 'string' && rawRequirement.trim()
+          ? Number(rawRequirement)
+          : null
+      if (requirementId != null && !Number.isInteger(requirementId)) {
+        throw new PersonnelWorkflowError('Choose a required document', 400)
+      }
+      return leaveRequestService.addAttachment(actorId(c), id, file, requirementId)
     }, 201),
   )
   .get(
@@ -368,11 +555,12 @@ export const leave = new Hono<{ Variables: AppVariables }>()
         const existing = await leaveRequestService.get(id)
         await assertEmployeeInScope(c.get('currentUser'), existing.matricule)
         const file = await leaveRequestService.readAttachment(id, attachmentId)
-        return new Response(file.bytes, {
+        const type = imageContentType(file.originalName)
+        return new Response(Uint8Array.from(file.bytes), {
           status: 200,
           headers: {
-            'Content-Type': 'application/octet-stream',
-            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
+            'Content-Type': type,
+            'Content-Disposition': `${type.startsWith('image/') ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
           },
         })
       } catch (err) {

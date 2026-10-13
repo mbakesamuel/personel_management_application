@@ -2,11 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import type { AppVariables } from '../middleware/current-user.js'
-import {
-  ForbiddenError,
-  requirePermission,
-  unitIdsForUser,
-} from '../services/authz.service.js'
+import { unitIdsForUser } from '../services/authz.service.js'
 import { listOrgUnits } from '../services/org.service.js'
 import {
   absenceLookup,
@@ -406,14 +402,6 @@ export const personnelLookups = new Hono<{ Variables: AppVariables }>()
     '/units',
     zValidator('query', z.object({ all: z.enum(['1']).optional() })),
     async (c) => {
-      try {
-        await requirePermission(c.get('currentUser'), 'canPersonnel')
-      } catch (err) {
-        if (err instanceof ForbiddenError) {
-          return c.json({ error: err.message }, 403)
-        }
-        throw err
-      }
       const units = await listOrgUnits()
       if (c.req.valid('query').all === '1') return c.json(units)
       const allowed = await unitIdsForUser(c.get('currentUser'))

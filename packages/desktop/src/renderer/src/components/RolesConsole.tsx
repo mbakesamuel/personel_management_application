@@ -1,4 +1,9 @@
-import type { Jurisdiction, RoleDefinition } from '@personel-management-app/shared'
+import type {
+  AccessLevel,
+  Jurisdiction,
+  RoleDefinition,
+} from '@personel-management-app/shared'
+import { ACCESS_LEVELS } from '@personel-management-app/shared'
 import { Eye, Pencil, Plus, Shield, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createApiClient } from '../api/client'
@@ -47,9 +52,12 @@ type FormState = {
   canAppraisals: boolean
   canFinancialYears: boolean
   canOrganization: boolean
-  canPersonnel: boolean
+  personnelAccess: AccessLevel
   canLeave: boolean
   canLeaveValidate: boolean
+  canPermissionRequests: boolean
+  canLeaveRequests: boolean
+  canLeaveDue: boolean
   canAllowances: boolean
   canAllowanceTypes: boolean
   canAllowanceCatalog: boolean
@@ -77,8 +85,10 @@ const PERMISSION_FIELDS = [
   ['canAppraisals', 'Appraisals'],
   ['canFinancialYears', 'Financial years'],
   ['canOrganization', 'Organization'],
-  ['canPersonnel', 'Personnel'],
-  ['canLeave', 'Leave'],
+  ['canLeave', 'Leave setup'],
+  ['canPermissionRequests', 'Permission requests'],
+  ['canLeaveRequests', 'Leave requests'],
+  ['canLeaveDue', 'Leave due'],
   ['canLeaveValidate', 'Validate leave'],
   ['canAllowances', 'Allowances module'],
   ['canAllowanceTypes', 'Allowance types'],
@@ -92,7 +102,7 @@ const PERMISSION_FIELDS = [
   ['canDemoteClassification', 'Demote classification'],
   ['canEditValidated', 'Edit validated records'],
   ['canLetterCc', 'Letter copies (CC)'],
-  ['canDecisionMatrix', 'Decision Matrix'],
+  ['canDecisionMatrix', 'Memo signatories'],
   ['canThroughOfficers', 'Through Officers'],
   ['canImportHistory', 'Import historic appraisals'],
   ['canExportHistory', 'Export historic appraisals'],
@@ -109,9 +119,12 @@ function emptyForm(defaultJurisdiction = 'section'): FormState {
     canAppraisals: true,
     canFinancialYears: false,
     canOrganization: false,
-    canPersonnel: false,
+    personnelAccess: 'NONE',
     canLeave: false,
     canLeaveValidate: false,
+    canPermissionRequests: false,
+    canLeaveRequests: false,
+    canLeaveDue: false,
     canAllowances: false,
     canAllowanceTypes: false,
     canAllowanceCatalog: false,
@@ -139,8 +152,13 @@ function permissionsSummary(role: RoleDefinition): string {
   if (role.canAppraisals) flags.push('Appraisals')
   if (role.canFinancialYears) flags.push('FY')
   if (role.canOrganization) flags.push('Org')
-  if (role.canPersonnel) flags.push('Personnel')
-  if (role.canLeave) flags.push('Leave')
+  if (role.personnelAccess !== 'NONE') {
+    flags.push(`Personnel ${PERSONNEL_ACCESS_LABELS[role.personnelAccess]}`)
+  }
+  if (role.canLeave) flags.push('Leave setup')
+  if (role.canPermissionRequests) flags.push('Permission requests')
+  if (role.canLeaveRequests) flags.push('Leave requests')
+  if (role.canLeaveDue) flags.push('Leave due')
   if (role.canLeaveValidate) flags.push('Validate leave')
   if (role.canAllowances) flags.push('Allowances')
   if (role.canAllowanceTypes) flags.push('Types')
@@ -154,7 +172,7 @@ function permissionsSummary(role: RoleDefinition): string {
   if (role.canDemoteClassification) flags.push('Demote class.')
   if (role.canEditValidated) flags.push('Edit validated')
   if (role.canLetterCc) flags.push('CC')
-  if (role.canDecisionMatrix) flags.push('Matrix')
+  if (role.canDecisionMatrix) flags.push('Memos')
   if (role.canThroughOfficers) flags.push('Thro')
   if (role.canImportHistory) flags.push('Import')
   if (role.canExportHistory) flags.push('Export')
@@ -164,8 +182,16 @@ function permissionsSummary(role: RoleDefinition): string {
   return flags.length > 0 ? flags.join(', ') : 'None'
 }
 
+const PERSONNEL_ACCESS_LABELS: Record<AccessLevel, string> = {
+  NONE: 'None',
+  READ: 'Read',
+  WRITE: 'Write',
+  ALL: 'All',
+}
+
 function permissionCount(role: RoleDefinition): number {
-  return PERMISSION_FIELDS.filter(([key]) => role[key]).length
+  const flags = PERMISSION_FIELDS.filter(([key]) => role[key]).length
+  return flags + (role.personnelAccess === 'NONE' ? 0 : 1)
 }
 
 function jurisdictionLabel(
@@ -301,9 +327,12 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
       canAppraisals: row.canAppraisals,
       canFinancialYears: row.canFinancialYears,
       canOrganization: row.canOrganization,
-      canPersonnel: row.canPersonnel,
+      personnelAccess: row.personnelAccess,
       canLeave: row.canLeave,
       canLeaveValidate: row.canLeaveValidate,
+      canPermissionRequests: row.canPermissionRequests,
+      canLeaveRequests: row.canLeaveRequests,
+      canLeaveDue: row.canLeaveDue,
       canAllowances: row.canAllowances,
       canAllowanceTypes: row.canAllowanceTypes,
       canAllowanceCatalog: row.canAllowanceCatalog,
@@ -340,9 +369,12 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
         canAppraisals: form.canAppraisals,
         canFinancialYears: form.canFinancialYears,
         canOrganization: form.canOrganization,
-        canPersonnel: form.canPersonnel,
+        personnelAccess: form.personnelAccess,
         canLeave: form.canLeave,
         canLeaveValidate: form.canLeaveValidate,
+        canPermissionRequests: form.canPermissionRequests,
+        canLeaveRequests: form.canLeaveRequests,
+        canLeaveDue: form.canLeaveDue,
         canAllowances: form.canAllowances,
         canAllowanceTypes: form.canAllowanceTypes,
         canAllowanceCatalog: form.canAllowanceCatalog,
@@ -611,6 +643,29 @@ export function RolesConsole({ onClose }: RolesConsoleProps) {
                   {jurisdictions.map((j) => (
                     <SelectItem key={j.code} value={j.code}>
                       {j.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormDialogRow>
+            <FormDialogRow label="Personnel">
+              <Select
+                value={form.personnelAccess}
+                onValueChange={(value) =>
+                  setForm((prev) =>
+                    prev
+                      ? { ...prev, personnelAccess: value as AccessLevel }
+                      : prev,
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ACCESS_LEVELS.map((level) => (
+                    <SelectItem key={level} value={level}>
+                      {PERSONNEL_ACCESS_LABELS[level]}
                     </SelectItem>
                   ))}
                 </SelectContent>

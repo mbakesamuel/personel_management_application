@@ -62,13 +62,28 @@ export const SCOPE_KIND_RANK: Record<ScopeKind, number> = {
   all: 5,
 }
 
+export const ACCESS_LEVELS = ['NONE', 'READ', 'WRITE', 'ALL'] as const
+
+export type AccessLevel = (typeof ACCESS_LEVELS)[number]
+
+export function canViewAccess(level: AccessLevel): boolean {
+  return level === 'READ' || level === 'ALL'
+}
+
+export function canChangeAccess(level: AccessLevel): boolean {
+  return level === 'WRITE' || level === 'ALL'
+}
+
 export type RolePermissions = {
   canAppraisals: boolean
   canFinancialYears: boolean
   canOrganization: boolean
-  canPersonnel: boolean
+  personnelAccess: AccessLevel
   canLeave: boolean
   canLeaveValidate: boolean
+  canPermissionRequests: boolean
+  canLeaveRequests: boolean
+  canLeaveDue: boolean
   canAllowances: boolean
   canAllowanceTypes: boolean
   canAllowanceCatalog: boolean
@@ -157,9 +172,12 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
       canAppraisals: true,
       canFinancialYears: true,
       canOrganization: true,
-      canPersonnel: true,
+      personnelAccess: 'ALL',
       canLeave: true,
       canLeaveValidate: true,
+      canPermissionRequests: true,
+      canLeaveRequests: true,
+      canLeaveDue: true,
       canAllowances: true,
       canAllowanceTypes: true,
       canAllowanceCatalog: true,
@@ -185,9 +203,12 @@ export function defaultPermissionsForRole(role: Role): RolePermissions {
     canAppraisals: true,
     canFinancialYears: false,
     canOrganization: false,
-    canPersonnel: false,
+    personnelAccess: 'NONE',
     canLeave: false,
     canLeaveValidate: false,
+    canPermissionRequests: false,
+    canLeaveRequests: false,
+    canLeaveDue: false,
     canAllowances: false,
     canAllowanceTypes: false,
     canAllowanceCatalog: false,

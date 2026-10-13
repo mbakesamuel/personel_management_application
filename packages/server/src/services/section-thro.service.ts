@@ -6,6 +6,7 @@ import type {
 } from '@personel-management-app/shared'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
+import { unitMatchIds } from './live-employee.service.js'
 
 export class SectionThroNotFoundError extends Error {
   constructor(message = 'Record not found') {
@@ -270,6 +271,20 @@ export async function deleteSectionThroAssignment(id: number): Promise<void> {
   }
 }
 
+function endOfUtcDay(value: Date): Date {
+  return new Date(
+    Date.UTC(
+      value.getUTCFullYear(),
+      value.getUTCMonth(),
+      value.getUTCDate(),
+      23,
+      59,
+      59,
+      999,
+    ),
+  )
+}
+
 export async function resolveSectionThroTitle(input: {
   sectionId: number | null
   asOf: Date
@@ -279,11 +294,37 @@ export async function resolveSectionThroTitle(input: {
   const assignment = await prisma.tbl_section_thro.findFirst({
     where: {
       tbl_section_id: input.sectionId,
-      effdate: { lte: input.asOf },
+      effdate: { lte: endOfUtcDay(input.asOf) },
     },
     orderBy: [{ effdate: 'desc' }, { id: 'desc' }],
   })
 
   const title = assignment?.title?.trim()
   return (title || 'HEAD OF SECTION').toUpperCase()
+}
+
+const THRO_FALLBACK = 'HEAD OF SECTION'
+
+/** Thro' title for a form memo: the signatory title when the unit is not split, otherwise the latest section officer. */
+export async function resolveMemoThroTitle(input: {
+  unitId: string | null
+  sectionId: number | null
+  signatoryTitle: string | null
+  asOf: Date
+}): Promise<string> {
+  const unitId = input.unitId?.trim() || null
+  if (unitId) {
+    const unit = await prisma.tbl_unit.findFirst({
+      where: { id: { in: unitMatchIds([unitId]) } },
+      select: { splitIntoSections: true },
+    })
+    if (unit && !unit.splitIntoSections) {
+      const title = input.signatoryTitle?.trim()
+      return title ? title.toUpperCase() : THRO_FALLBACK
+    }
+  }
+  return resolveSectionThroTitle({
+    sectionId: input.sectionId,
+    asOf: input.asOf,
+  })
 }

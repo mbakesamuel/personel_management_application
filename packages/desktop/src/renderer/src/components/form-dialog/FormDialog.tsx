@@ -38,7 +38,7 @@ export function FormDialog({
           className,
         )}
       >
-        <DialogHeader className="border-b px-6 py-4 text-left">
+        <DialogHeader className="border-b px-3 py-4 text-left">
           <DialogTitle>{title}</DialogTitle>
           {subtitle ? (
             <DialogDescription>{subtitle}</DialogDescription>
@@ -46,7 +46,7 @@ export function FormDialog({
             <DialogDescription className="sr-only">{title}</DialogDescription>
           )}
         </DialogHeader>
-        <div className="min-w-0 px-6 py-2">{children}</div>
+        <div className="min-w-0 px-3 py-2">{children}</div>
       </DialogContent>
     </Dialog>
   )
@@ -74,7 +74,7 @@ export function FormDialogRow({
     >
       <Label
         htmlFor={htmlFor}
-        className="pt-2 text-sm font-medium text-muted-foreground sm:text-right"
+        className="rounded-lg bg-accent/20 px-2 py-1.5 text-sm font-medium text-accent-foreground sm:text-right"
       >
         {label}
       </Label>

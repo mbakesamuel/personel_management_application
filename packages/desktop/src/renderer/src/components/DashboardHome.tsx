@@ -179,7 +179,7 @@ export function DashboardHome({ user, data, onNavigate }: DashboardHomeProps) {
             {data.appyear != null ? ` · Financial year ${data.appyear}` : ''}
           </p>
         </div>
-        {user.permissions.canPersonnel ? (
+        {user.permissions.personnelAccess !== 'NONE' ? (
           <Button type="button" onClick={() => onNavigate('personnel')}>
             Personnel
           </Button>

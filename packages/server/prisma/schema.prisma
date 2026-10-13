@@ -63,6 +63,7 @@ model tbl_employee {
   leaveResumptions tbl_leave_resumption[]
   permissionRequests tbl_permission_request[]
   permissionAccount tbl_permission_account?
+  leaveAccrualAccount tbl_leave_accrual_account?
 
 
   active         Boolean                       @default(true)
@@ -714,13 +715,15 @@ model tbl_unit {
   unit_name String
   groupid   String
   zoneId    String
-  active    Boolean  @default(true)
+  active              Boolean  @default(true)
+  splitIntoSections   Boolean  @default(false)
   createdat DateTime @default(now())
   updatedat DateTime
   zone      tbl_zone @relation(fields: [zoneId], references: [id])
 
   movementsFrom tbl_emp_movement[] @relation("EmpMovementFromUnit")
   movementsTo   tbl_emp_movement[] @relation("EmpMovementToUnit")
+  thro          tbl_unit_thro[]
 
   @@index([groupid], map: "unit_groupid_fkey")
   @@index([zoneId])
@@ -754,9 +757,12 @@ model tbl_roles {
   can_appraisals       Boolean @default(true)
   can_financial_years  Boolean @default(false)
   can_organization         Boolean @default(false)
-  can_personnel            Boolean @default(false)
+  personnel_access         String  @default("NONE") @db.VarChar(10)
   can_leave                Boolean @default(false)
   can_leave_validate       Boolean @default(false)
+  can_permission_requests  Boolean @default(false)
+  can_leave_requests       Boolean @default(false)
+  can_leave_due            Boolean @default(false)
   can_allowances           Boolean @default(false)
   can_allowance_types      Boolean @default(false)
   can_allowance_catalog    Boolean @default(false)
@@ -793,30 +799,42 @@ model tbl_unit_signatory {
 }
 
 model tbl_decision_level {
-  code                     String                     @id @db.VarChar(30)
-  title                    String                     @db.VarChar(120)
-  cat_from                 Int
-  cat_to                   Int
-  scope                    String                     @db.VarChar(10)
-  tbl_decision_assignment  tbl_decision_assignment[]
+  code                        String                      @id @db.VarChar(30)
+  title                       String                      @db.VarChar(120)
+  scope                       String                      @db.VarChar(10)
+  tbl_official_memo_signatory tbl_official_memo_signatory[]
 }
 
-model tbl_decision_assignment {
-  id                       Int                 @id @default(autoincrement())
-  level_code               String              @db.VarChar(30)
-  signatory                String              @db.VarChar(255)
-  title                    String              @db.VarChar(255)
-  tbl_unit_id              String?             @db.VarChar(3)
-  tbl_group_id             String?
-  effdate                  DateTime            @db.DateTime(0)
-  tbl_decision_level       tbl_decision_level  @relation(fields: [level_code], references: [code], onDelete: Restrict)
+model tbl_official_memo {
+  id          Int                          @id @default(autoincrement())
+  code        String                       @unique @db.VarChar(40)
+  name        String                       @db.VarChar(120)
+  system      Boolean                      @default(false)
+  sortOrder   Int                          @map("sort_order")
+  signatories tbl_official_memo_signatory[]
+}
 
-  @@index([level_code])
+model tbl_official_memo_signatory {
+  id           Int                @id @default(autoincrement())
+  memoId       Int                @map("memo_id")
+  memo         tbl_official_memo  @relation(fields: [memoId], references: [id], onDelete: Cascade)
+  levelCode    String             @map("level_code") @db.VarChar(30)
+  level        tbl_decision_level @relation(fields: [levelCode], references: [code], onDelete: Restrict)
+  signatory    String?            @db.VarChar(255)
+  title        String             @db.VarChar(255)
+  catFrom      Int
+  catTo        Int
+  tbl_unit_id  String?            @db.VarChar(3)
+  tbl_group_id String?
+  effdate      DateTime           @db.DateTime(0)
+
+  @@index([memoId])
+  @@index([levelCode])
   @@index([tbl_unit_id])
   @@index([tbl_group_id])
   @@index([effdate])
-  @@unique([level_code, tbl_unit_id, effdate], map: "uniq_decision_unit_effdate")
-  @@unique([level_code, tbl_group_id, effdate], map: "uniq_decision_group_effdate")
+  @@unique([memoId, levelCode, tbl_unit_id, effdate], map: "uniq_memo_unit_effdate")
+  @@unique([memoId, levelCode, tbl_group_id, effdate], map: "uniq_memo_group_effdate")
 }
 
 model tbl_letter_cc {
@@ -861,6 +879,19 @@ model tbl_section_thro {
   @@index([tbl_section_id])
   @@index([effdate])
   @@unique([tbl_section_id, effdate], map: "uniq_section_thro_effdate")
+}
+
+model tbl_unit_thro {
+  id          Int      @id @default(autoincrement())
+  tbl_unit_id String   @db.VarChar(191)
+  signatory   String   @db.VarChar(255)
+  title       String   @db.VarChar(255)
+  effdate     DateTime @db.DateTime(0)
+  unit        tbl_unit @relation(fields: [tbl_unit_id], references: [id], onDelete: Restrict)
+
+  @@index([tbl_unit_id])
+  @@index([effdate])
+  @@unique([tbl_unit_id, effdate], map: "uniq_unit_thro_effdate")
 }
 
 //allowances specific models.
@@ -1225,6 +1256,16 @@ enum LeaveCalculationMethod {
   METHOD_2
 }
 
+enum AbsenceCategory {
+  LEAVE
+  PERMISSION
+}
+
+enum AbsenceDurationUnit {
+  WORKING_DAYS
+  CALENDAR_WEEKS
+}
+
 // MASTER TABLES
 
 model tbl_leave_type {
@@ -1234,7 +1275,42 @@ model tbl_leave_type {
   requireAttachment     Boolean  @default(false)
   carryForwardAllowed   Boolean  @default(false)
   active                Boolean  @default(true)
+  category              AbsenceCategory @default(LEAVE)
+  isPaid                Boolean  @default(true)
+  deductBalance         Boolean  @default(false)
+  maxDays               Int?
+  durationUnit          AbsenceDurationUnit @default(WORKING_DAYS)
+  description           String?  @db.VarChar(191)
   leaveRequests         tbl_leave_request[]
+  permissionRequests    tbl_permission_request[]
+  documentRequirements  tbl_leave_document_requirement[]
+  durationRules         tbl_permission_duration_rule[]
+}
+
+model tbl_leave_document_requirement {
+  id          Int      @id @default(autoincrement())
+  leaveTypeId Int
+  leaveType   tbl_leave_type @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  name        String   @db.VarChar(120)
+  sortOrder   Int
+  attachments tbl_leave_attachment[]
+  permissionAttachments tbl_permission_attachment[]
+
+  @@index([leaveTypeId])
+}
+
+model tbl_permission_duration_rule {
+  id            Int            @id @default(autoincrement())
+  leaveTypeId   Int
+  leaveType     tbl_leave_type @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  days          Int
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+
+  @@unique([leaveTypeId, effectiveFrom])
+  @@index([leaveTypeId])
 }
 
 model tbl_leave_calculation_policy {
@@ -1312,6 +1388,7 @@ model tbl_leave_request {
   startDate           DateTime
   endDate             DateTime?
   reason              String? @db.Text
+  suppliedResumedDate DateTime?
   workflowStatus      tbl_personnel_workflow_status @default(PENDING)
   current             Boolean @default(true)
   createdAt           DateTime @default(now())
@@ -1329,6 +1406,7 @@ model tbl_leave_request {
   resumptions         tbl_leave_resumption[]
   memo                tbl_leave_memo?
   permissionLedger    tbl_permission_ledger[]
+  accrualLedger       tbl_leave_accrual_ledger?
 
   @@index([matricule])
   @@index([workflowStatus])
@@ -1344,6 +1422,10 @@ model tbl_leave_attachment {
   filePath          String
   uploadedById      Int
   uploadedAt        DateTime @default(now())
+  requirementId     Int?
+  requirement       tbl_leave_document_requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+
+  @@index([requirementId])
 }
 
 
@@ -1432,6 +1514,11 @@ model tbl_public_holiday {
   @@unique([month, day])
 }
 
+model tbl_leave_processing_setting {
+  id                       Int     @id @default(1)
+  userSupplyLastResumption Boolean @default(false)
+}
+
 model tbl_leave_mother_setting {
   id           Int @id @default(1)
   daysPerChild Int @default(0)
@@ -1447,6 +1534,7 @@ model tbl_leave_letter_setting {
   signCategory9         String @default("DIRECTOR, HUMAN RESOURCES") @db.VarChar(160)
   ccBelow               String @default("FIN.D\nMHRDS\nAO (HRD)") @db.VarChar(500)
   ccCategory9           String @default("FIN.D\nDTS\nMHRDS\nAg. HRO (TSD)") @db.VarChar(500)
+  ccLayout              String @default("COLUMN") @db.VarChar(10)
 }
 
 model tbl_permission_request {
@@ -1455,6 +1543,9 @@ model tbl_permission_request {
   employee        tbl_employee @relation(fields: [matricule], references: [matricule])
   days            Int
   applicationDate DateTime
+  startDate       DateTime
+  endDate         DateTime?
+  resumeDate      DateTime?
   reason          String?  @db.Text
   workflowStatus  tbl_personnel_workflow_status @default(PENDING)
   current         Boolean  @default(false)
@@ -1467,10 +1558,30 @@ model tbl_permission_request {
   rejectedAt      DateTime?
   rejectedById    Int?
   reviewNote      String?
+  leaveTypeId     Int?
+  leaveType       tbl_leave_type? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
   ledger          tbl_permission_ledger?
+  attachments     tbl_permission_attachment[]
 
   @@index([matricule])
   @@index([workflowStatus])
+  @@index([leaveTypeId])
+}
+
+model tbl_permission_attachment {
+  id                  Int      @id @default(autoincrement())
+  permissionRequestId Int
+  permissionRequest   tbl_permission_request @relation(fields: [permissionRequestId], references: [id], onDelete: Cascade)
+  fileName            String
+  originalName        String
+  filePath            String
+  uploadedById        Int
+  uploadedAt          DateTime @default(now())
+  requirementId       Int?
+  requirement         tbl_leave_document_requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+
+  @@index([permissionRequestId])
+  @@index([requirementId])
 }
 
 model tbl_permission_account {
@@ -1482,6 +1593,11 @@ model tbl_permission_account {
 }
 
 enum PermissionLedgerKind {
+  CREDIT
+  DEBIT
+}
+
+enum LeaveAccrualLedgerKind {
   CREDIT
   DEBIT
 }
@@ -1503,6 +1619,29 @@ model tbl_permission_ledger {
   @@index([matricule])
 }
 
+model tbl_leave_accrual_account {
+  matricule   String   @id
+  employee    tbl_employee @relation(fields: [matricule], references: [matricule])
+  balanceDays Int      @default(0)
+  updatedAt   DateTime @updatedAt
+  entries     tbl_leave_accrual_ledger[]
+}
+
+model tbl_leave_accrual_ledger {
+  id             Int      @id @default(autoincrement())
+  matricule      String
+  account        tbl_leave_accrual_account @relation(fields: [matricule], references: [matricule])
+  days           Int
+  kind           LeaveAccrualLedgerKind
+  leaveRequestId Int?     @unique
+  leaveRequest   tbl_leave_request? @relation(fields: [leaveRequestId], references: [id])
+  note           String?  @db.VarChar(191)
+  createdAt      DateTime @default(now())
+  createdById    Int
+
+  @@index([matricule])
+}
+
 model tbl_leave_memo {
   id                 Int      @id @default(autoincrement())
   leaveRequestId     Int      @unique
@@ -1513,6 +1652,9 @@ model tbl_leave_memo {
   entitledDays       Int
   permissionDays     Int
   netDays            Int
+  accruedLastTour    Int      @default(0)
+  daysTakenNow       Int      @default(0)
+  accruedThisTour    Int      @default(0)
   travelAllowance    Int
   accrualStartDate   DateTime?
   accrualEndDate     DateTime?
@@ -1523,7 +1665,11 @@ model tbl_leave_memo {
   signatoryPreface   String?  @db.VarChar(255)
   signatoryName      String?  @db.VarChar(120)
   signatoryTitle     String   @db.VarChar(160)
+  signerCategory     Int?
+  signerUnitId       String?  @db.VarChar(3)
+  signerGroupId      String?  @db.VarChar(191)
   ccText             String   @db.VarChar(500)
+  ccLayout           String   @default("COLUMN") @db.VarChar(10)
   html               String   @db.LongText
   createdAt          DateTime @default(now())
 }

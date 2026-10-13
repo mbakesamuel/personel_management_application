@@ -50,9 +50,12 @@ async function mapRoleRow(row: {
   can_appraisals: boolean
   can_financial_years: boolean
   can_organization: boolean
-  can_personnel: boolean
+  personnel_access: string
   can_leave: boolean
   can_leave_validate: boolean
+  can_permission_requests: boolean
+  can_leave_requests: boolean
+  can_leave_due: boolean
   can_allowances: boolean
   can_allowance_types: boolean
   can_allowance_catalog: boolean
@@ -82,9 +85,12 @@ async function mapRoleRow(row: {
     canAppraisals: row.can_appraisals,
     canFinancialYears: row.can_financial_years,
     canOrganization: row.can_organization,
-    canPersonnel: row.can_personnel,
+    personnelAccess: row.personnel_access as RoleDefinition['personnelAccess'],
     canLeave: row.can_leave,
     canLeaveValidate: row.can_leave_validate,
+    canPermissionRequests: row.can_permission_requests,
+    canLeaveRequests: row.can_leave_requests,
+    canLeaveDue: row.can_leave_due,
     canAllowances: row.can_allowances,
     canAllowanceTypes: row.can_allowance_types,
     canAllowanceCatalog: row.can_allowance_catalog,
@@ -133,9 +139,12 @@ export async function getPermissionsForRole(
     canAppraisals: def.canAppraisals,
     canFinancialYears: def.canFinancialYears,
     canOrganization: def.canOrganization,
-    canPersonnel: def.canPersonnel,
+    personnelAccess: def.personnelAccess,
     canLeave: def.canLeave,
     canLeaveValidate: def.canLeaveValidate,
+    canPermissionRequests: def.canPermissionRequests,
+    canLeaveRequests: def.canLeaveRequests,
+    canLeaveDue: def.canLeaveDue,
     canAllowances: def.canAllowances,
     canAllowanceTypes: def.canAllowanceTypes,
     canAllowanceCatalog: def.canAllowanceCatalog,
@@ -235,9 +244,12 @@ export async function createRole(
         can_appraisals: input.canAppraisals,
         can_financial_years: input.canFinancialYears,
         can_organization: input.canOrganization,
-        can_personnel: input.canPersonnel,
+        personnel_access: input.personnelAccess,
         can_leave: input.canLeave,
         can_leave_validate: input.canLeaveValidate,
+        can_permission_requests: input.canPermissionRequests,
+        can_leave_requests: input.canLeaveRequests,
+        can_leave_due: input.canLeaveDue,
         can_allowances: input.canAllowances,
         can_allowance_types: input.canAllowanceTypes,
         can_allowance_catalog: input.canAllowanceCatalog,
@@ -292,9 +304,12 @@ export async function updateRole(
       can_appraisals: input.canAppraisals,
       can_financial_years: input.canFinancialYears,
       can_organization: input.canOrganization,
-      can_personnel: input.canPersonnel,
+      personnel_access: input.personnelAccess,
       can_leave: input.canLeave,
       can_leave_validate: input.canLeaveValidate,
+      can_permission_requests: input.canPermissionRequests,
+      can_leave_requests: input.canLeaveRequests,
+      can_leave_due: input.canLeaveDue,
       can_allowances: input.canAllowances,
       can_allowance_types: input.canAllowanceTypes,
       can_allowance_catalog: input.canAllowanceCatalog,
@@ -321,9 +336,12 @@ export async function updateRole(
       can_appraisals: input.canAppraisals,
       can_financial_years: input.canFinancialYears,
       can_organization: input.canOrganization,
-      can_personnel: input.canPersonnel,
+      personnel_access: input.personnelAccess,
       can_leave: input.canLeave,
       can_leave_validate: input.canLeaveValidate,
+      can_permission_requests: input.canPermissionRequests,
+      can_leave_requests: input.canLeaveRequests,
+      can_leave_due: input.canLeaveDue,
       can_allowances: input.canAllowances,
       can_allowance_types: input.canAllowanceTypes,
       can_allowance_catalog: input.canAllowanceCatalog,

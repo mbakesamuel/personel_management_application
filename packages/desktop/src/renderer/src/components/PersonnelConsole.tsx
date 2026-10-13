@@ -1,5 +1,7 @@
 import {
+  canChangeAccess,
   canEditWorkflowStatus,
+  canViewAccess,
   type EmployeeListResponse,
   type EmployeeOption,
   type User,
@@ -258,7 +260,11 @@ export function PersonnelConsole({
   } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
 
-  const canReviewWorkflow = currentUser.permissions.canValidate
+  const canView = canViewAccess(currentUser.permissions.personnelAccess)
+  const canChange = canChangeAccess(currentUser.permissions.personnelAccess)
+  const canReviewWorkflow =
+    currentUser.permissions.canValidate && canView
+  const [lookupMatricule, setLookupMatricule] = useState('')
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const pageStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const pageEnd = Math.min(page * PAGE_SIZE, total)
@@ -299,8 +305,12 @@ export function PersonnelConsole({
   }, [page, search, sortBy])
 
   useEffect(() => {
+    if (!canView) {
+      setLoading(false)
+      return
+    }
     void loadPage()
-  }, [loadPage])
+  }, [loadPage, canView])
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -365,6 +375,27 @@ export function PersonnelConsole({
   function openGeneral(row: EmployeeOption) {
     setSelectedEmployee(row)
     setTab('general')
+  }
+
+  async function openByMatricule() {
+    const matricule = lookupMatricule.trim()
+    if (!matricule) return
+    setLoading(true)
+    setStatus(null)
+    try {
+      const client = await createApiClient()
+      const res = await client.personnel.employees[':matricule'].$get({
+        param: { matricule },
+      })
+      if (!res.ok) {
+        throw new Error(await readError(res, 'Employee not found'))
+      }
+      openGeneral((await res.json()) as EmployeeOption)
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
   }
 
   function rememberEmployee(row: EmployeeOption) {
@@ -433,7 +464,9 @@ export function PersonnelConsole({
         if (!res.ok) {
           throw new Error(await readError(res, 'Create failed'))
         }
-        rememberEmployee((await res.json()) as EmployeeOption)
+        const created = (await res.json()) as EmployeeOption
+        rememberEmployee(created)
+        if (!canView) openGeneral(created)
       } else {
         if (!editingMatricule) throw new Error('Missing matricule')
         const payload = {
@@ -453,10 +486,12 @@ export function PersonnelConsole({
         if (!res.ok) {
           throw new Error(await readError(res, 'Update failed'))
         }
-        rememberEmployee((await res.json()) as EmployeeOption)
+        const updated = (await res.json()) as EmployeeOption
+        rememberEmployee(updated)
+        if (!canView) openGeneral(updated)
       }
       setDialogOpen(false)
-      await loadPage()
+      if (canView) await loadPage()
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -514,7 +549,7 @@ export function PersonnelConsole({
         subtitle="Employee records and related personnel data"
         headerActions={
           <>
-            {tab === 'list' ? (
+            {tab === 'list' && canChange ? (
               <Button
                 type="button"
                 size="sm"
@@ -523,6 +558,23 @@ export function PersonnelConsole({
               >
                 <Plus className="size-4" />
                 Add employee
+              </Button>
+            ) : null}
+            {tab === 'general' &&
+            selectedEmployee &&
+            canChange &&
+            canMutate(
+              selectedEmployee.workflowStatus,
+              currentUser.permissions.canEditValidated,
+            ) ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => openEdit(selectedEmployee)}
+                disabled={loading}
+              >
+                <Pencil className="size-4" />
+                Edit
               </Button>
             ) : null}
             <Button type="button" variant="outline" size="sm" onClick={onClose}>
@@ -553,7 +605,9 @@ export function PersonnelConsole({
             ? selectedEmployee
               ? `General — ${selectedEmployee.matricule}`
               : 'General'
-            : 'All employees'
+            : canView
+              ? 'All employees'
+              : 'Open an employee'
         }
         cardSubtitle={
           tab === 'general'
@@ -563,13 +617,17 @@ export function PersonnelConsole({
                     ? ` ${selectedEmployee.firstname}`
                     : ''
                 }`
-              : 'Select an employee on List'
-            : loading
-              ? 'Loading…'
-              : `${total} records`
+              : canView
+                ? 'Select an employee on List'
+                : 'Enter a matricule on List'
+            : !canView
+              ? 'Load one record by matricule'
+              : loading
+                ? 'Loading…'
+                : `${total} records`
         }
         filterTabs={
-          tab === 'list' ? (
+          tab === 'list' && canView ? (
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <span className="text-muted-foreground">Sort by</span>
               <label className="flex items-center gap-1.5">
@@ -598,15 +656,21 @@ export function PersonnelConsole({
         search={searchDraft}
         onSearchChange={setSearchDraft}
         searchPlaceholder="Search matricule, surname, first name…"
-        showSearch={tab === 'list'}
+        showSearch={tab === 'list' && canView}
         toolbarExtra={
-          tab === 'general' && selectedEmployee ? (
+          tab === 'general' && selectedEmployee && canChange ? (
             <label className="flex shrink-0 items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 className="size-4 accent-primary"
                 checked={selectedEmployee.active}
-                disabled={loading}
+                disabled={
+                  loading ||
+                  !canMutate(
+                    selectedEmployee.workflowStatus,
+                    currentUser.permissions.canEditValidated,
+                  )
+                }
                 onChange={(e) => void setEmployeeActive(e.target.checked)}
               />
               Active
@@ -654,10 +718,37 @@ export function PersonnelConsole({
               </div>
             ) : (
               <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                Select an employee on the List tab, then open General from the name
-                or the actions menu.
+                {canView
+                  ? 'Select an employee on the List tab, then open General from the name or the actions menu.'
+                  : 'Enter a matricule on the List tab to open that employee.'}
               </div>
             )
+          ) : !canView ? (
+            <form
+              className="flex max-w-sm flex-col gap-3 p-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void openByMatricule()
+              }}
+            >
+              <label className="text-sm font-medium" htmlFor="personnel-matricule">
+                Matricule
+              </label>
+              <Input
+                id="personnel-matricule"
+                value={lookupMatricule}
+                onChange={(event) => setLookupMatricule(event.target.value)}
+                placeholder="Employee matricule"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                className="w-fit"
+                disabled={loading || !lookupMatricule.trim()}
+              >
+                Open
+              </Button>
+            </form>
           ) : (
           <Table>
             <TableHeader>
@@ -743,7 +834,8 @@ export function PersonnelConsole({
                             <Eye className="size-4" />
                             View
                           </DropdownMenuItem>
-                          {canMutate(
+                          {canChange &&
+                          canMutate(
                             row.workflowStatus,
                             currentUser.permissions.canEditValidated,
                           ) ? (
@@ -792,7 +884,7 @@ export function PersonnelConsole({
           )
         }
         pagination={
-          tab === 'list' ? (
+          tab === 'list' && canView ? (
             <CatalogPagination
               pageStart={pageStart}
               pageEnd={pageEnd}
@@ -964,7 +1056,7 @@ export function PersonnelConsole({
           primaryLabel={loading ? 'Saving…' : 'Save'}
           onPrimary={() => void handleSave()}
           onCancel={() => setDialogOpen(false)}
-          primaryDisabled={loading}
+          primaryDisabled={loading || !canChange}
           cancelDisabled={loading}
         />
       </FormDialog>

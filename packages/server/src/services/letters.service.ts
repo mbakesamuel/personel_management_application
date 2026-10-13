@@ -13,10 +13,10 @@ import {
   templateForAward,
 } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
-import { resolveDecisionSignatory } from './decision.service.js'
+import { resolveOfficialMemoSignatory } from './official-memo.service.js'
 import { resolveLiveEmployees } from './live-employee.service.js'
 import { resolveLetterCcLabels } from './letter-cc.service.js'
-import { resolveSectionThroTitle } from './section-thro.service.js'
+import { resolveMemoThroTitle } from './section-thro.service.js'
 
 async function resolveAllowedSectionIds(
   query: AppraisalListQuery,
@@ -137,7 +137,6 @@ export async function buildAppraisalLetters(
     string,
     { name: string | null; title: string | null } | null
   >()
-  const throBySection = new Map<number, string>()
   const letters: AppraisalLetter[] = []
   const skipped: SkippedAppraisalLetter[] = []
 
@@ -160,7 +159,8 @@ export async function buildAppraisalLetters(
   ) {
     const key = `${category ?? ''}|${unitId ?? ''}|${groupId ?? ''}`
     if (signatoryByKey.has(key)) return signatoryByKey.get(key) ?? null
-    const signatory = await resolveDecisionSignatory({
+    const signatory = await resolveOfficialMemoSignatory({
+      code: 'APPRAISAL',
       category,
       unitId,
       groupId,
@@ -168,15 +168,6 @@ export async function buildAppraisalLetters(
     })
     signatoryByKey.set(key, signatory)
     return signatory
-  }
-
-  async function throFor(sectionId: number | null): Promise<string> {
-    if (sectionId == null) return resolveSectionThroTitle({ sectionId, asOf })
-    const cached = throBySection.get(sectionId)
-    if (cached) return cached
-    const title = await resolveSectionThroTitle({ sectionId, asOf })
-    throBySection.set(sectionId, title)
-    return title
   }
 
   for (const row of rows) {
@@ -236,7 +227,12 @@ export async function buildAppraisalLetters(
       unitId,
       groupId,
     )
-    const throTitle = await throFor(sectionId)
+    const throTitle = await resolveMemoThroTitle({
+      unitId,
+      sectionId,
+      signatoryTitle: signatory?.title ?? null,
+      asOf,
+    })
 
     const vars = {
       names: names ?? matric,

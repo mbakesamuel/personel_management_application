@@ -1,9 +1,13 @@
-import type {
-  AllocationLetter,
-  AllocationLettersResponse,
-  SectionOption,
-  UnitOption,
-  User,
+import {
+  memoDateTextHtml,
+  memoFormDocumentHtml,
+  memoFormPageHtml,
+  type AllocationLetter,
+  type AllocationLettersResponse,
+  type MemoCcLayout,
+  type SectionOption,
+  type UnitOption,
+  type User,
 } from "@personel-management-app/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createApiClient } from "../api/client";
@@ -35,20 +39,26 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-function renderMemoDate(value: string): string {
-  return escapeHtml(value).replace(/^(\d+)(st|nd|rd|th)/i, "$1<sup>$2</sup>");
-}
-
 function formatAmount(value: number): string {
   return value.toLocaleString("en-US");
 }
 
-function buildPrintHtml(letters: AllocationLetter[]): string {
+const ALLOCATION_CSS = `
+.memo-body table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12pt; }
+.memo-body th, .memo-body td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
+.memo-body th { text-align: left; text-transform: uppercase; }
+.memo-body .r { text-align: right; }
+.memo-body .u { text-transform: uppercase; }
+.memo-body ol { margin: 0 0 12px 1.25em; padding: 0; }
+.memo-body li { margin-bottom: 8px; }
+`;
+
+function buildPrintHtml(
+  letters: AllocationLetter[],
+  ccLayout: MemoCcLayout,
+): string {
   const pages = letters
     .map((letter) => {
-      const refs = letter.refs
-        .map((ref) => `<div>${escapeHtml(ref)}</div>`)
-        .join("");
       const rows = letter.rows
         .map(
           (row) => `
@@ -60,37 +70,9 @@ function buildPrintHtml(letters: AllocationLetter[]): string {
         )
         .join("");
       const conditions = letter.conditions
-        .map((c) => `<li>${escapeHtml(c)}</li>`)
+        .map((condition) => `<li>${escapeHtml(condition)}</li>`)
         .join("");
-      return `
-      <article class="memo-page">
-        <header class="center">
-          <div class="org">CAMEROON DEVELOPMENT CORPORATION</div>
-          <div class="doc-title">INTER-DEPARTMENTAL MEMO</div>
-        </header>
-        <div class="grid">
-          <div class="left">
-            <div class="cell top"><strong>FROM: </strong></div>
-            <div class="cell indent"><strong>${escapeHtml(letter.fromTitle)}</strong></div>
-            <div class="cell">&nbsp;</div>
-          </div>
-          <div class="right">
-            <div class="cell top">To:</div>
-            <div class="cell indent"><strong>${escapeHtml(letter.names ?? letter.matricule)}</strong></div>
-            <div class="cell indent">${escapeHtml(letter.designationLine)}</div>
-          </div>
-        </div>
-        <div class="thro"><div class="thro-text">Thro': ${escapeHtml(letter.throTitle)}</div></div>
-        <div class="meta">
-          <div class="meta-left">
-            ${refs}
-            <div class="matric"><strong>MAT. NO. ${escapeHtml(letter.matricule)}</strong></div>
-          </div>
-          <div class="meta-right">${renderMemoDate(letter.memoDate)}</div>
-        </div>
-        <h2 class="subject">${escapeHtml(letter.subject)}</h2>
-
-        <p class="body">${escapeHtml(letter.openingParagraph)}</p>
+      const body = `<p>${escapeHtml(letter.openingParagraph)}</p>
         <table>
           <thead>
             <tr>
@@ -101,83 +83,32 @@ function buildPrintHtml(letters: AllocationLetter[]): string {
           </thead>
           <tbody>${rows}</tbody>
         </table>
-        <p class="body">The following conditions shall apply;</p>
-        <ol class="conditions">${conditions}</ol>
-        <p class="body">${escapeHtml(letter.closingLine)}</p>
-        <div class="sign">
-          ${letter.signatoryName ? `<div class="name">${escapeHtml(letter.signatoryName)}</div>` : ""}
-          <div class="title">${escapeHtml(letter.signatoryTitle ?? letter.fromTitle)}</div>
-        </div>
-        <div class="cc">Cc: ${escapeHtml(letter.cc.join(", ") || "—")}</div>
-      </article>`;
+        <p>The following conditions shall apply;</p>
+        <ol>${conditions}</ol>
+        <p>${escapeHtml(letter.closingLine)}</p>`;
+      return memoFormPageHtml({
+        fromTitle: letter.fromTitle,
+        toName: letter.names ?? letter.matricule,
+        designation: letter.designationLine,
+        throTitle: letter.throTitle,
+        refs: letter.refs,
+        matricule: letter.matricule,
+        dateHtml: memoDateTextHtml(letter.memoDate),
+        subject: letter.subject,
+        bodyHtml: body,
+        signatoryName: letter.signatoryName,
+        signatoryTitle: letter.signatoryTitle ?? letter.fromTitle,
+        ccLines: letter.cc,
+        ccLayout,
+      });
     })
     .join("");
-
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Allowance Allocation Letters</title>
-  <style>
-    @page {
-      size: A4;
-      margin-top: 4mm;
-      margin-bottom: 4mm;
-      margin-left: 18mm;
-      margin-right: 18mm;
-    }
-    body {
-      font-family: "Times New Roman", Times, serif;
-      font-size: 12pt;
-      line-height: 1.5;
-      color: #000;
-      margin: 0;
-    }
-    .memo-page { page-break-after: always; }
-    .memo-page:last-child { page-break-after: auto; }
-    .center { text-align: center; }
-    .org { font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
-    .doc-title { margin-top: 4px; font-weight: 700; text-transform: uppercase; text-decoration: underline; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 2px solid #000; border-bottom: 2px solid #000; margin-top: 16px; }
-    .left { border-right: 1px solid #000; }
-    .cell { padding: 6px 8px; border-bottom: 1px solid #000; text-transform: uppercase; }
-    .cell.top { font-weight: 600; }
-    .cell.indent { padding-left: 4em; }
-    .right .cell:last-child { border-bottom: none; }
-    .left .cell:last-child { border-bottom: none; }
-    .thro {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      margin-top: 4px;
-      text-transform: uppercase;
-    }
-    .thro-text {
-      grid-column: 2;
-      padding: 4px 8px;
-      padding-left: 4em;
-      box-sizing: border-box;
-    }
-    .meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-top: 12px; text-transform: uppercase; }
-    .meta-left .matric { font-weight: 700; text-decoration: underline; margin-top: 4px; }
-    .meta-right { text-transform: none; }
-    .meta-right sup { font-size: 0.7em; }
-    .subject { text-align: center; text-transform: uppercase; text-decoration: underline; margin: 24px 0 16px; font-size: 14pt; }
-    .body { margin: 0 0 12px; text-align: justify; }
-    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12pt; }
-    th, td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
-    th { text-align: left; text-transform: uppercase; }
-    .r { text-align: right; }
-    .u { text-transform: uppercase; }
-    .conditions { margin: 0 0 12px 1.25em; padding: 0; text-align: justify; }
-    .conditions li { margin-bottom: 8px; }
-    .sign { text-align: right; margin-top: 40px; }
-    .sign .name, .sign .title { font-weight: 700; text-transform: uppercase; }
-    .cc { margin-top: 40px; }
-    sup { font-size: 0.7em; }
-  </style>
-</head>
-<body>${pages}</body>
-</html>`;
+  return memoFormDocumentHtml({
+    title: "Allowance Allocation Letters",
+    pageHtml: pages,
+    copies: 2,
+    extraCss: ALLOCATION_CSS,
+  });
 }
 
 export function AllocationLettersConsole({
@@ -191,6 +122,7 @@ export function AllocationLettersConsole({
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [sections, setSections] = useState<SectionOption[]>([]);
   const [letters, setLetters] = useState<AllocationLetter[]>([]);
+  const [ccLayout, setCcLayout] = useState<MemoCcLayout>("COLUMN");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -238,6 +170,7 @@ export function AllocationLettersConsole({
         }
         const data = (await res.json()) as AllocationLettersResponse;
         setLetters(data.letters);
+        setCcLayout(data.ccLayout === "ROW" ? "ROW" : "COLUMN");
         if (data.letters.length === 0) {
           setStatus(
             matricFilter
@@ -287,8 +220,8 @@ export function AllocationLettersConsole({
   }, [loadLetters]);
 
   const printHtml = useMemo(
-    () => (letters.length > 0 ? buildPrintHtml(letters) : ""),
-    [letters],
+    () => (letters.length > 0 ? buildPrintHtml(letters, ccLayout) : ""),
+    [letters, ccLayout],
   );
 
   return (
