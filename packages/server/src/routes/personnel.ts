@@ -47,6 +47,7 @@ import {
 } from '../services/authz.service.js'
 import { prisma } from '../db.js'
 import { unitMatchIds } from '../services/live-employee.service.js'
+import { getServiceLetter } from '../services/service-letter.service.js'
 
 const ReviewSchema = WorkflowReviewSchema
 
@@ -559,6 +560,20 @@ const employees = new Hono<{ Variables: AppVariables }>()
           matricule,
           c.req.valid('json'),
         )
+      }),
+  )
+  .get(
+    '/:matricule/service-letter',
+    zValidator('param', MatriculeParam),
+    zValidator(
+      'query',
+      z.object({ kind: z.enum(['attestation', 'certificate']) }),
+    ),
+    async (c) =>
+      handle(c, async () => {
+        const { matricule } = c.req.valid('param')
+        await assertEmployeeInScope(c.get('currentUser'), matricule)
+        return getServiceLetter(matricule, c.req.valid('query').kind)
       }),
   )
   .get('/:matricule/image', zValidator('param', MatriculeParam), async (c) => {

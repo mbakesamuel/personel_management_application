@@ -188,6 +188,20 @@ export {
 } from './leave.js'
 export type { LeaveMemoKind } from './leave.js'
 export {
+  SERVICE_LETTER_FILE_REF,
+  SERVICE_LETTER_SIGNATORY,
+  addIsoDays,
+  buildServicePosts,
+  postsThrough,
+  serviceCertificateDuties,
+} from './service-letter.js'
+export type {
+  ServiceLetter,
+  ServiceLetterKind,
+  ServiceLetterPost,
+  ServiceMovement,
+} from './service-letter.js'
+export {
   RoleSchema,
   RoleScopeSchema,
   ScopeKindSchema,

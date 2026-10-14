@@ -4,6 +4,7 @@ import {
   canViewAccess,
   type EmployeeListResponse,
   type EmployeeOption,
+  type ServiceLetterKind,
   type User,
   type WorkflowStatus,
 } from '@personel-management-app/shared'
@@ -36,6 +37,7 @@ import {
 } from './form-dialog'
 import { PersonnelChildTableDialog } from './personnel/PersonnelChildTableDialog'
 import { PersonnelSanctionsDialog } from './personnel/PersonnelSanctionsDialog'
+import { ServiceLetterPreview } from './ServiceLetterPreview'
 import {
   PERSONNEL_CHILD_TABLES,
   type PersonnelChildTableConfig,
@@ -253,6 +255,7 @@ export function PersonnelConsole({
   const [childTable, setChildTable] =
     useState<PersonnelChildTableConfig | null>(null)
   const [sanctionsOpen, setSanctionsOpen] = useState(false)
+  const [letterKind, setLetterKind] = useState<ServiceLetterKind | null>(null)
 
   const [reviewAction, setReviewAction] = useState<{
     kind: 'validate' | 'reject'
@@ -541,6 +544,16 @@ export function PersonnelConsole({
       ]
     : []
 
+  if (letterKind && selectedEmployee) {
+    return (
+      <ServiceLetterPreview
+        matricule={selectedEmployee.matricule}
+        kind={letterKind}
+        onClose={() => setLetterKind(null)}
+      />
+    )
+  }
+
   return (
     <>
       <CatalogScreen
@@ -559,6 +572,28 @@ export function PersonnelConsole({
                 <Plus className="size-4" />
                 Add employee
               </Button>
+            ) : null}
+            {tab === 'general' && selectedEmployee ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLetterKind('attestation')}
+                  disabled={loading}
+                >
+                  Attestation of service
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLetterKind('certificate')}
+                  disabled={loading}
+                >
+                  Certificate of service
+                </Button>
+              </>
             ) : null}
             {tab === 'general' &&
             selectedEmployee &&

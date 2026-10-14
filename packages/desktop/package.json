@@ -10,7 +10,9 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "pack": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --dir",
-    "dist": "npm run build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder"
+    "dist": "npm run build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder",
+    "dist:x86": "npm run build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win --ia32",
+    "dist:x64": "npm run build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win --x64"
   },
   "dependencies": {
     "@personel-management-app/shared": "*",

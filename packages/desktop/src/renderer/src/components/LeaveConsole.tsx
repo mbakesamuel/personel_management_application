@@ -1256,7 +1256,7 @@ export function LeaveConsole({
           </FormDialogRow>
 
           {supplyLastResumption ? (
-            <FormDialogRow label="Last resumed date" htmlFor="leave-resumed">
+            <FormDialogRow label="Last resump. date" htmlFor="leave-resumed">
               <Input
                 id="leave-resumed"
                 type="date"
