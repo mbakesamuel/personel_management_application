@@ -78,7 +78,31 @@ export function computeProposedCategoryFromScale(input: {
       (row) => row.catid === catId && row.echid === echId,
     )
     const currentBSAL = current?.bsal ?? 0
-    if (currentBSAL === 0) {
+    if (!current || currentBSAL === 0) {
+      return {
+        overflow: true,
+        note: 'Could not retrieve current BSAL.',
+      }
+    }
+
+    // Triple-advance within the present category before crossing categories.
+    const { echid: advancedEchId, overflow: tripleOverflow } = nextEchelonId(
+      echelonsForCategory(catId),
+      echId,
+      3,
+    )
+    if (tripleOverflow || advancedEchId === 0) {
+      return {
+        overflow: true,
+        note: 'No higher echelon available in this category.',
+      }
+    }
+
+    const advanced = scale2.find(
+      (row) => row.catid === catId && row.echid === advancedEchId,
+    )
+    const advancedBSAL = advanced?.bsal ?? 0
+    if (advancedBSAL === 0) {
       return {
         overflow: true,
         note: 'Could not retrieve current BSAL.',
@@ -87,7 +111,7 @@ export function computeProposedCategoryFromScale(input: {
 
     const newCatId = catId + 1
     const match = scale2
-      .filter((row) => row.catid === newCatId && row.bsal >= currentBSAL)
+      .filter((row) => row.catid === newCatId && row.bsal >= advancedBSAL)
       .sort((a, b) => a.bsal - b.bsal)[0]
 
     if (!match) {
@@ -109,7 +133,7 @@ export function computeProposedCategoryFromScale(input: {
     return {
       overflow: false,
       proCat: formatProposedCat(newCat, newEch),
-      note: `Upgraded to category ${newCat} with BSAL = ${currentBSAL}`,
+      note: `Upgraded to category ${newCat} after triple increment (BSAL = ${advancedBSAL})`,
     }
   }
 

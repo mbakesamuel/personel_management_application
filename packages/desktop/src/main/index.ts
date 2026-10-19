@@ -55,7 +55,8 @@ const A4_PRINT_OPTIONS = {
   printBackground: true,
   pageSize: "A4" as const,
   scaleFactor: 100,
-  margins: { marginType: "none" as const },
+  // Do not force marginType "none" — that zeros margins and lets table rows
+  // paint under fixed footers. CSS @page margins in the report HTML apply instead.
 };
 
 function printWebContents(
@@ -361,7 +362,8 @@ app.whenReady().then(() => {
           printBackground: true,
           pageSize: "A4",
           landscape: options?.landscape === true,
-          margins: { marginType: "none" },
+          // Honor CSS @page margins so fixed footers do not cover table rows.
+          preferCSSPageSize: true,
         });
         if (!pdfBuffer || pdfBuffer.byteLength === 0) {
           throw new Error("PDF generation returned empty output");

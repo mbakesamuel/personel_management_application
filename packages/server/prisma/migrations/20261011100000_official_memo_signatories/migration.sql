@@ -18,7 +18,7 @@ CREATE TABLE `tbl_official_memo` (
 
     UNIQUE INDEX `tbl_official_memo_code_key`(`code`),
     PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE `tbl_official_memo_signatory` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
@@ -38,7 +38,7 @@ CREATE TABLE `tbl_official_memo_signatory` (
     UNIQUE INDEX `uniq_memo_unit_effdate`(`memo_id`, `level_code`, `tbl_unit_id`, `effdate`),
     UNIQUE INDEX `uniq_memo_group_effdate`(`memo_id`, `level_code`, `tbl_group_id`, `effdate`),
     PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 ALTER TABLE `tbl_official_memo_signatory`
   ADD CONSTRAINT `tbl_official_memo_signatory_memo_id_fkey`

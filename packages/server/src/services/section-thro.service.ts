@@ -7,6 +7,7 @@ import type {
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 import { unitMatchIds } from './live-employee.service.js'
+import { resolvePinnedUnitSignatory } from './official-memo.service.js'
 
 export class SectionThroNotFoundError extends Error {
   constructor(message = 'Record not found') {
@@ -303,13 +304,17 @@ export async function resolveSectionThroTitle(input: {
   return (title || 'HEAD OF SECTION').toUpperCase()
 }
 
-const THRO_FALLBACK = 'HEAD OF SECTION'
+const UNIT_THRO_FALLBACK = 'ESTATE MANAGER'
 
-/** Thro' title for a form memo: the signatory title when the unit is not split, otherwise the latest section officer. */
+/**
+ * Thro' title for a form memo:
+ * - Unit not split into sections → unit-level UNIT_MANAGER holder (no category filter)
+ * - Unit split (or no unit) → latest section Thro' officer
+ */
 export async function resolveMemoThroTitle(input: {
+  memoCode: string
   unitId: string | null
   sectionId: number | null
-  signatoryTitle: string | null
   asOf: Date
 }): Promise<string> {
   const unitId = input.unitId?.trim() || null
@@ -319,8 +324,13 @@ export async function resolveMemoThroTitle(input: {
       select: { splitIntoSections: true },
     })
     if (unit && !unit.splitIntoSections) {
-      const title = input.signatoryTitle?.trim()
-      return title ? title.toUpperCase() : THRO_FALLBACK
+      const holder = await resolvePinnedUnitSignatory({
+        code: input.memoCode,
+        unitId,
+        asOf: input.asOf,
+      })
+      const title = holder.title?.trim()
+      return (title || UNIT_THRO_FALLBACK).toUpperCase()
     }
   }
   return resolveSectionThroTitle({

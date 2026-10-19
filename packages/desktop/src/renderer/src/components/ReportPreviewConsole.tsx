@@ -1,10 +1,8 @@
-import { Download, Printer, RefreshCw, X } from 'lucide-react'
+import { Eye, RefreshCw, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { htmlToPdfBytes } from '../lib/html-to-pdf'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { PdfViewer } from './PdfViewer'
-import { ViewErrorBoundary } from './ViewErrorBoundary'
+import { LetterPdfOverlay } from './LetterPdfOverlay'
 
 type ReportPreviewConsoleProps = {
   title: string
@@ -24,12 +22,6 @@ type ReportPreviewConsoleProps = {
   emptyMessage?: string
 }
 
-function ownedPdfBytes(bytes: Uint8Array): Uint8Array {
-  const copy = new Uint8Array(bytes.byteLength)
-  copy.set(bytes)
-  return copy
-}
-
 export function ReportPreviewConsole({
   title,
   onClose,
@@ -45,104 +37,19 @@ export function ReportPreviewConsole({
   refreshDisabled = false,
   emptyMessage = 'No report data for the current filters.',
 }: ReportPreviewConsoleProps) {
-  const [printing, setPrinting] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [actionStatus, setActionStatus] = useState<string | null>(null)
-  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
-  const [pdfLoading, setPdfLoading] = useState(false)
-  const [pdfError, setPdfError] = useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const landscape = printOptions?.landscape === true
+  const canPreview = hasData && printHtml.trim().length > 0
 
+  // Auto-open when a report finishes loading with data; close when data goes away.
   useEffect(() => {
-    if (loading || !hasData || printHtml.trim().length === 0) {
-      setPdfBytes(null)
-      setPdfError(null)
-      setPdfLoading(false)
-      return
+    if (loading) return
+    if (canPreview) {
+      setPreviewOpen(true)
+    } else {
+      setPreviewOpen(false)
     }
-    let cancelled = false
-    setPdfLoading(true)
-    setPdfError(null)
-    setPdfBytes(null)
-    void htmlToPdfBytes(printHtml, { landscape })
-      .then((bytes) => {
-        if (cancelled) return
-        const source = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
-        if (source.byteLength < 5) throw new Error('PDF generation returned empty output')
-        const next = ownedPdfBytes(source)
-        const header = String.fromCharCode(next[0]!, next[1]!, next[2]!, next[3]!, next[4]!)
-        if (header !== '%PDF-') throw new Error('PDF generation returned invalid output')
-        setPdfBytes(next)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setPdfBytes(null)
-          setPdfError(err instanceof Error ? err.message : 'Could not open the report')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setPdfLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [hasData, landscape, loading, printHtml])
-
-  async function handlePrint() {
-    if (!hasData || printHtml.trim().length === 0) {
-      setActionStatus('Nothing to print.')
-      return
-    }
-    if (typeof window.api?.printHtml !== 'function') {
-      setActionStatus(
-        'Print is unavailable. Restart the desktop app and try again.',
-      )
-      return
-    }
-    setPrinting(true)
-    setActionStatus('Opening print dialog…')
-    try {
-      await window.api.printHtml(printHtml, { landscape })
-      setActionStatus(null)
-    } catch (err) {
-      setActionStatus(err instanceof Error ? err.message : String(err))
-    } finally {
-      setPrinting(false)
-    }
-  }
-
-  async function handleSavePdf() {
-    if (!pdfBytes || pdfBytes.byteLength === 0) {
-      setActionStatus('Nothing to save.')
-      return
-    }
-    if (typeof window.api?.savePdf !== 'function') {
-      setActionStatus(
-        'Save PDF is unavailable. Restart the desktop app and try again.',
-      )
-      return
-    }
-    setSaving(true)
-    setActionStatus('Saving PDF…')
-    try {
-      const result = await window.api.savePdf({
-        defaultName: defaultPdfName,
-        data: ownedPdfBytes(pdfBytes),
-      })
-      if (!('path' in result)) {
-        setActionStatus(null)
-        return
-      }
-      setActionStatus(`Saved PDF to ${result.path}`)
-    } catch (err) {
-      setActionStatus(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const busy = loading || printing || saving || pdfLoading
-  const displayStatus = actionStatus ?? status
+  }, [loading, canPreview, printHtml])
 
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
@@ -155,7 +62,7 @@ export function ReportPreviewConsole({
               variant="outline"
               size="sm"
               onClick={onRefresh}
-              disabled={busy || refreshDisabled}
+              disabled={loading || refreshDisabled}
             >
               <RefreshCw className="size-4" />
               Refresh
@@ -164,21 +71,11 @@ export function ReportPreviewConsole({
           <Button
             type="button"
             size="sm"
-            onClick={() => void handlePrint()}
-            disabled={busy || !hasData}
+            onClick={() => setPreviewOpen(true)}
+            disabled={loading || !canPreview}
           >
-            <Printer className="size-4" />
-            {printing ? 'Printing…' : 'Print'}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void handleSavePdf()}
-            disabled={busy || !pdfBytes}
-          >
-            <Download className="size-4" />
-            {saving ? 'Saving…' : 'Save PDF'}
+            <Eye className="size-4" />
+            Preview
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
             <X className="size-4" />
@@ -189,9 +86,9 @@ export function ReportPreviewConsole({
 
       {toolbar}
 
-      {displayStatus ? (
+      {status ? (
         <Alert className="shrink-0">
-          <AlertDescription>{displayStatus}</AlertDescription>
+          <AlertDescription>{status}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -200,14 +97,24 @@ export function ReportPreviewConsole({
       <div className="flex min-h-0 flex-1 flex-col">
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading report…</p>
-        ) : !hasData ? (
+        ) : !canPreview ? (
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         ) : (
-          <ViewErrorBoundary label="The report preview crashed">
-            <PdfViewer data={pdfBytes} loading={pdfLoading} error={pdfError} />
-          </ViewErrorBoundary>
+          <p className="text-sm text-muted-foreground">
+            Report ready. Open Preview for the full-window print view.
+          </p>
         )}
       </div>
+
+      {previewOpen && canPreview ? (
+        <LetterPdfOverlay
+          html={printHtml}
+          title={title}
+          landscape={landscape}
+          defaultPdfName={defaultPdfName}
+          onClose={() => setPreviewOpen(false)}
+        />
+      ) : null}
     </section>
   )
 }

@@ -6,7 +6,6 @@ import {
   LeaveEntitlementUpdateSchema,
   LeaveLetterSettingSchema,
   LeaveMotherSettingSchema,
-  LeaveProcessingSettingSchema,
   LeaveAccrualAdjustSchema,
   LeaveProcessSchema,
   LeaveMonthlyRateCreateSchema,
@@ -128,7 +127,10 @@ function flagsForLeaveRoute(method: string, pathname: string): LeaveFlag[] {
   if (method === 'GET' && rest === '/types') {
     return ['canLeave', 'canLeaveRequests', 'canPermissionRequests']
   }
-  if (method === 'GET' && rest === '/processing-settings') {
+  if (
+    method === 'GET' &&
+    (rest === '/holidays' || rest === '/letter-settings')
+  ) {
     return ['canLeave', 'canLeaveRequests']
   }
   if (
@@ -335,17 +337,6 @@ export const leave = new Hono<{ Variables: AppVariables }>()
         handle(c, () =>
           leaveSetupService.holidays.remove(c.req.valid('param').id),
         ),
-      ),
-  )
-  .get('/processing-settings', async (c) =>
-    handle(c, () => leaveSetupService.processingSettings.get()),
-  )
-  .put(
-    '/processing-settings',
-    zValidator('json', LeaveProcessingSettingSchema),
-    async (c) =>
-      handle(c, () =>
-        leaveSetupService.processingSettings.update(c.req.valid('json')),
       ),
   )
   .get('/mother-settings', async (c) =>

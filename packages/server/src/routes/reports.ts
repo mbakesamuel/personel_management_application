@@ -9,6 +9,7 @@ import {
   ForbiddenError,
   requirePermission,
   sectionIdsForUser,
+  unitIdsForUser,
 } from '../services/authz.service.js'
 import { buildAllocationLetters } from '../services/allocation-letters.service.js'
 import { buildAppraisalLetters } from '../services/letters.service.js'
@@ -65,8 +66,10 @@ const reports = new Hono<{ Variables: AppVariables }>()
       }
 
       const query = c.req.valid('query')
-      const scopeSectionIds = await sectionIdsForUser(user)
-      const data = await buildAppraisalSummary(query, scopeSectionIds)
+      // Scope by live unit posting — Posted salary-review rows often have
+      // null tbl_section_id and would vanish under section-id filters.
+      const scopeUnitIds = await unitIdsForUser(user)
+      const data = await buildAppraisalSummary(query, scopeUnitIds)
       return c.json(data)
     },
   )

@@ -4,7 +4,6 @@ import { BarChart3, ClipboardList, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setCurrentUserId } from "./api/client";
 import { AppraisalConsole } from "./components/AppraisalConsole";
-import { AppraisalSummaryConsole } from "./components/AppraisalSummaryConsole";
 import {
   AppSidebar,
   type AppView,
@@ -361,10 +360,6 @@ export default function App() {
               view: "letters" as const,
               label: "Appraisal Letters",
             },
-            {
-              view: "appraisal-summary" as const,
-              label: "Appraisal Summary",
-            },
           ]
         : []),
       ...(perms?.canAllowances && perms.canAllowanceAllocations
@@ -684,12 +679,6 @@ export default function App() {
             <JurisdictionsConsole onClose={() => setView("home")} />
           ) : view === "letters" ? (
             <LettersConsole
-              user={user}
-              financialYear={financialYear}
-              onClose={() => setView("home")}
-            />
-          ) : view === "appraisal-summary" ? (
-            <AppraisalSummaryConsole
               user={user}
               financialYear={financialYear}
               onClose={() => setView("home")}

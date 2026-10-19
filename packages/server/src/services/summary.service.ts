@@ -5,7 +5,11 @@ import type {
   AppraisalSummarySection,
 } from '@personel-management-app/shared'
 import { prisma } from '../db.js'
-import { resolveLiveEmployees } from './live-employee.service.js'
+import {
+  resolveLiveEmployees,
+  unitCodesMatch,
+  unitMatchIds,
+} from './live-employee.service.js'
 
 function toDateOnly(value: Date | null | undefined): string | null {
   if (!value) return null
@@ -15,70 +19,73 @@ function toDateOnly(value: Date | null | undefined): string | null {
   return `${y}-${m}-${d}`
 }
 
-async function resolveAllowedSectionIds(
+function unitInScope(
+  unitId: string,
+  scopeUnitIds: string[] | null,
+): boolean {
+  if (scopeUnitIds === null) return true
+  return scopeUnitIds.some((allowed) => unitCodesMatch(allowed, unitId))
+}
+
+/**
+ * Units to keep after jurisdiction + optional unit/section filters.
+ * null = unrestricted / no unit filter. Empty = nothing visible.
+ */
+async function resolveFilterUnitIds(
   query: AppraisalListQuery,
-  scopeSectionIds: number[] | null,
-): Promise<number[] | null> {
+  scopeUnitIds: string[] | null,
+): Promise<string[] | null> {
   if (
-    scopeSectionIds === null &&
+    scopeUnitIds === null &&
     query.sectionId == null &&
     query.unitId == null
   ) {
     return null
   }
 
-  let sectionIds: number[]
-
   if (query.sectionId != null) {
-    if (scopeSectionIds && !scopeSectionIds.includes(query.sectionId)) {
+    const section = await prisma.tbl_section.findUnique({
+      where: { id: query.sectionId },
+      select: { tbl_unit_id: true },
+    })
+    const unitId = section?.tbl_unit_id
+    if (!unitId || !unitInScope(unitId, scopeUnitIds)) {
       return []
     }
-    sectionIds = [query.sectionId]
-  } else if (query.unitId != null) {
-    const unitSections = (
-      await prisma.tbl_section.findMany({
-        where: { tbl_unit_id: query.unitId },
-        select: { id: true },
-      })
-    ).map((s) => s.id)
-    sectionIds = scopeSectionIds
-      ? unitSections.filter((id) => scopeSectionIds.includes(id))
-      : unitSections
-  } else {
-    sectionIds = scopeSectionIds ?? []
+    return [unitId]
   }
 
-  return sectionIds
+  if (query.unitId != null) {
+    if (!unitInScope(query.unitId, scopeUnitIds)) {
+      return []
+    }
+    return [query.unitId]
+  }
+
+  return scopeUnitIds ?? []
 }
 
 export async function buildAppraisalSummary(
   query: AppraisalListQuery,
-  scopeSectionIds: number[] | null = null,
+  scopeUnitIds: string[] | null = null,
 ): Promise<AppraisalSummaryResponse> {
   const appyear = query.appyear ?? null
   if (appyear == null) {
     return { appyear: null, sections: [] }
   }
 
-  const allowedSections = await resolveAllowedSectionIds(
-    query,
-    scopeSectionIds,
-  )
-  if (allowedSections && allowedSections.length === 0) {
+  const filterUnitIds = await resolveFilterUnitIds(query, scopeUnitIds)
+  if (filterUnitIds && filterUnitIds.length === 0) {
     return { appyear, sections: [] }
   }
 
   const where: {
     appyear: number
     matric?: string
-    tbl_section_id?: { in: number[] }
   } = { appyear }
 
   if (query.matric?.trim()) {
     where.matric = query.matric.trim()
-  }
-  if (allowedSections) {
-    where.tbl_section_id = { in: allowedSections }
   }
 
   const loaded = await prisma.tbl_salaryreview.findMany({
@@ -92,7 +99,12 @@ export async function buildAppraisalSummary(
   )
   const rows = loaded.filter((row) => {
     const matric = row.matric?.trim()
-    return matric ? live.has(matric) : false
+    if (!matric) return false
+    const person = live.get(matric)
+    if (!person) return false
+    if (filterUnitIds === null) return true
+    if (!person.codeUnit) return false
+    return filterUnitIds.some((id) => unitCodesMatch(id, person.codeUnit!))
   })
 
   if (rows.length === 0) {
@@ -109,22 +121,40 @@ export async function buildAppraisalSummary(
     ),
   ]
 
-  const sections = await prisma.tbl_section.findMany({
-    where: { id: { in: sectionIds } },
-  })
+  const sections = sectionIds.length
+    ? await prisma.tbl_section.findMany({
+        where: { id: { in: sectionIds } },
+      })
+    : []
   const sectionById = new Map(sections.map((s) => [s.id, s]))
 
-  const unitIds = [
-    ...new Set(
-      sections
-        .map((s) => s.tbl_unit_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ]
+  const unitIdsFromSections = sections
+    .map((s) => s.tbl_unit_id)
+    .filter((id): id is string => Boolean(id))
+  const unitIdsFromLive = rows
+    .map((r) => {
+      const matric = r.matric?.trim()
+      return matric ? (live.get(matric)?.codeUnit ?? null) : null
+    })
+    .filter((id): id is string => Boolean(id))
+  const unitIds = [...new Set([...unitIdsFromSections, ...unitIdsFromLive])]
+
   const units = unitIds.length
-    ? await prisma.tbl_unit.findMany({ where: { id: { in: unitIds } } })
+    ? await prisma.tbl_unit.findMany({
+        where: { id: { in: unitMatchIds(unitIds) } },
+      })
     : []
   const unitById = new Map(units.map((u) => [u.id, u]))
+
+  // Resolve padded live codes (e.g. "1") to stored unit ids ("001").
+  function resolveUnitRow(code: string | null | undefined) {
+    if (!code) return null
+    return (
+      units.find((u) => unitCodesMatch(u.id, code)) ??
+      unitById.get(code) ??
+      null
+    )
+  }
 
   const groupIds = [...new Set(units.map((u) => u.groupid).filter(Boolean))]
   const groups = groupIds.length
@@ -132,9 +162,10 @@ export async function buildAppraisalSummary(
     : []
   const groupById = new Map(groups.map((g) => [g.id, g]))
 
-  const signatories = unitIds.length
+  const storedUnitIds = units.map((u) => u.id)
+  const signatories = storedUnitIds.length
     ? await prisma.tbl_unit_signatory.findMany({
-        where: { tbl_unit_id: { in: unitIds } },
+        where: { tbl_unit_id: { in: storedUnitIds } },
         orderBy: { effdate: 'desc' },
       })
     : []
@@ -164,20 +195,34 @@ export async function buildAppraisalSummary(
   const buckets = new Map<string, Bucket>()
 
   for (const row of rows) {
+    const matric = row.matric?.trim() ?? ''
+    const person = matric ? live.get(matric) : undefined
     const sectionId =
       row.tbl_section_id != null ? Math.trunc(row.tbl_section_id) : null
-    const key = sectionId != null ? String(sectionId) : '__none__'
+    const section = sectionId != null ? sectionById.get(sectionId) : null
+    const liveUnit = resolveUnitRow(person?.codeUnit)
+    const unitId = section?.tbl_unit_id ?? liveUnit?.id ?? null
+    const unit = unitId
+      ? (unitById.get(unitId) ?? resolveUnitRow(unitId))
+      : liveUnit
+
+    // Prefer stored section; otherwise one page per live unit (Posted rows
+    // have null section id).
+    const key =
+      sectionId != null
+        ? `s:${sectionId}`
+        : unit?.id
+          ? `u:${unit.id}`
+          : '__none__'
+
     let bucket = buckets.get(key)
     if (!bucket) {
-      const section = sectionId != null ? sectionById.get(sectionId) : null
-      const unitId = section?.tbl_unit_id ?? null
-      const unit = unitId ? unitById.get(unitId) : null
       const group = unit ? groupById.get(unit.groupid) : null
-      const signatory = unitId ? signatoryByUnit.get(unitId) : null
+      const signatory = unit?.id ? signatoryByUnit.get(unit.id) : null
       bucket = {
         sectionId,
-        sectionName: section?.section ?? 'Unassigned',
-        unitId,
+        sectionName: section?.section ?? unit?.unit_name ?? 'Unassigned',
+        unitId: unit?.id ?? null,
         unitName: unit?.unit_name ?? null,
         groupName: group?.group_name ?? null,
         signatoryName: signatory?.name ?? null,

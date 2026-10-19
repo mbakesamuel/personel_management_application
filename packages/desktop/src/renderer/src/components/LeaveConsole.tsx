@@ -11,6 +11,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createApiClient } from "../api/client";
 import { formatDisplayDate } from "../lib/format-date";
 import {
+  lastWorkingDayBeforeIso,
+  type LeaveHoliday,
+} from "../lib/leave-working-days";
+import {
   FormDialog,
   FormDialogActions,
   FormDialogError,
@@ -132,7 +136,8 @@ type HistoryRow = {
   leaveEndDate: string;
   resumedDate: string | null;
   daysGranted: number | null;
-  leaveRequestId: number;
+  leaveGrantId: number | null;
+  leaveRequestId: number | null;
 };
 
 function day(value: string | null | undefined) {
@@ -194,10 +199,11 @@ export function LeaveConsole({
     reason: "",
     suppliedResumedDate: "",
   });
-  const [supplyLastResumption, setSupplyLastResumption] = useState(false);
   const [permissionBalance, setPermissionBalance] = useState<number | null>(
     null,
   );
+  const [holidays, setHolidays] = useState<LeaveHoliday[]>([]);
+  const [saturdayWorking, setSaturdayWorking] = useState(true);
   const [memoHtml, setMemoHtml] = useState<string | null>(null);
   const [calculationReportHtml, setCalculationReportHtml] = useState<
     string | null
@@ -218,6 +224,15 @@ export function LeaveConsole({
   const previewUrl = useRef<string | null>(null);
 
   const selected = requests.find((row) => row.id === selectedId) ?? null;
+  const hasLeaveHistory = history.length > 0;
+  const accrualEndPreview = form.startDate
+    ? lastWorkingDayBeforeIso(form.startDate, holidays, saturdayWorking)
+    : null;
+  const accrualStartPreview =
+    employee?.lastResumedDate ??
+    (!hasLeaveHistory && form.suppliedResumedDate
+      ? form.suppliedResumedDate
+      : employee?.dateEng);
   const annualLeave = isAnnualLeaveType(selected?.leaveType);
   const canReview = currentUser.permissions.canLeaveValidate;
   const snapshot = selected?.calculations[0];
@@ -249,16 +264,18 @@ export function LeaveConsole({
 
   const loadTypes = useCallback(async () => {
     const client = await createApiClient();
-    const [res, settingRes] = await Promise.all([
+    const [res, holidayRes, letterRes] = await Promise.all([
       client.leave.types.$get(),
-      client.leave["processing-settings"].$get(),
+      client.leave.holidays.$get(),
+      client.leave["letter-settings"].$get(),
     ]);
     if (res.ok) setTypes((await res.json()) as LeaveType[]);
-    if (settingRes.ok) {
-      const setting = (await settingRes.json()) as {
-        userSupplyLastResumption: boolean;
-      };
-      setSupplyLastResumption(setting.userSupplyLastResumption);
+    if (holidayRes.ok) {
+      setHolidays((await holidayRes.json()) as LeaveHoliday[]);
+    }
+    if (letterRes.ok) {
+      const letter = (await letterRes.json()) as { saturdayWorking: boolean };
+      setSaturdayWorking(letter.saturdayWorking);
     }
   }, []);
 
@@ -332,7 +349,7 @@ export function LeaveConsole({
         applicationDate: form.applicationDate,
         startDate: form.startDate,
         reason: form.reason.trim() || null,
-        ...(supplyLastResumption
+        ...(!hasLeaveHistory
           ? { suppliedResumedDate: form.suppliedResumedDate || null }
           : {}),
       };
@@ -1214,18 +1231,15 @@ export function LeaveConsole({
                 <div className="rounded-lg bg-primary/10 px-3 py-2">
                   <div className="text-xs text-muted-foreground">From</div>
                   <div className="text-sm font-semibold">
-                    {day(
-                      employee?.lastLeaveDate ??
-                        (supplyLastResumption && form.suppliedResumedDate
-                          ? form.suppliedResumedDate
-                          : employee?.dateEng),
-                    )}
+                    {day(accrualStartPreview)}
                   </div>
                 </div>
                 <div className="rounded-lg bg-accent/20 px-3 py-2">
-                  <div className="text-xs text-muted-foreground">To</div>
+                  <div className="text-xs text-muted-foreground">
+                    To (last working day before start)
+                  </div>
                   <div className="text-sm font-semibold">
-                    {day(form.applicationDate)}
+                    {day(accrualEndPreview)}
                   </div>
                 </div>
               </div>
@@ -1255,7 +1269,7 @@ export function LeaveConsole({
             />
           </FormDialogRow>
 
-          {supplyLastResumption ? (
+          {!hasLeaveHistory ? (
             <FormDialogRow label="Last resump. date" htmlFor="leave-resumed">
               <Input
                 id="leave-resumed"
@@ -1269,8 +1283,8 @@ export function LeaveConsole({
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Use this when the employee has no leave history yet. Leave it
-                blank to start from the engagement date.
+                No leave history for this employee. Leave blank to start from
+                the engagement date.
               </p>
             </FormDialogRow>
           ) : null}

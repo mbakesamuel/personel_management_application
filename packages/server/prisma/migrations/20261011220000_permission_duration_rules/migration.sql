@@ -10,7 +10,7 @@ CREATE TABLE `tbl_permission_duration_rule` (
     INDEX `tbl_permission_duration_rule_leaveTypeId_idx`(`leaveTypeId`),
     UNIQUE INDEX `tbl_permission_duration_rule_leaveTypeId_effectiveFrom_key`(`leaveTypeId`, `effectiveFrom`),
     PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 ALTER TABLE `tbl_permission_duration_rule`
   ADD CONSTRAINT `tbl_permission_duration_rule_leaveTypeId_fkey`

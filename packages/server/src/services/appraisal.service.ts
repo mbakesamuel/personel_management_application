@@ -14,10 +14,9 @@ import {
   findMatriculesForUnits,
   resolveLiveEmployee,
   resolveLiveEmployees,
+  unitCodesMatch,
 } from './live-employee.service.js'
 import { resolveMatricLookup } from './matric-lookup.service.js'
-
-
 
 function toDateOnly(value: Date | null | undefined): string | null {
   if (!value) return null
@@ -62,12 +61,25 @@ async function unitIdsFromSectionIds(sectionIds: number[]): Promise<string[]> {
   ]
 }
 
+function unitInScope(
+  unitId: string,
+  scopeUnitIds: string[] | null,
+): boolean {
+  if (scopeUnitIds === null) return true
+  return scopeUnitIds.some((allowed) => unitCodesMatch(allowed, unitId))
+}
+
+/**
+ * Resolve matricules visible for appraisal list filters.
+ * Scope is by **unit** (from unitIdsForUser). Do not derive units from
+ * sections — units without sections (e.g. group management) would vanish.
+ */
 async function matricsForFilters(
   query: AppraisalListQuery,
-  scopeSectionIds: number[] | null,
+  scopeUnitIds: string[] | null,
 ): Promise<string[] | null> {
   if (
-    scopeSectionIds === null &&
+    scopeUnitIds === null &&
     query.sectionId == null &&
     query.unitId == null
   ) {
@@ -77,21 +89,20 @@ async function matricsForFilters(
   let unitIds: string[]
 
   if (query.sectionId != null) {
-    if (scopeSectionIds && !scopeSectionIds.includes(query.sectionId)) {
+    unitIds = await unitIdsFromSectionIds([query.sectionId])
+    if (
+      unitIds.length === 0 ||
+      unitIds.some((id) => !unitInScope(id, scopeUnitIds))
+    ) {
       return []
     }
-    unitIds = await unitIdsFromSectionIds([query.sectionId])
   } else if (query.unitId != null) {
-    const scopeUnits =
-      scopeSectionIds != null
-        ? await unitIdsFromSectionIds(scopeSectionIds)
-        : null
-    if (scopeUnits && !scopeUnits.includes(query.unitId)) {
+    if (!unitInScope(query.unitId, scopeUnitIds)) {
       return []
     }
     unitIds = [query.unitId]
   } else {
-    unitIds = await unitIdsFromSectionIds(scopeSectionIds ?? [])
+    unitIds = scopeUnitIds ?? []
   }
 
   if (unitIds.length === 0) {
@@ -99,6 +110,19 @@ async function matricsForFilters(
   }
 
   return findMatriculesForUnits(unitIds)
+}
+
+async function effectiveUnitFilter(
+  query: AppraisalListQuery,
+  scopeUnitIds: string[] | null,
+): Promise<string[] | null> {
+  if (query.sectionId != null) {
+    return unitIdsFromSectionIds([query.sectionId])
+  }
+  if (query.unitId != null) {
+    return [query.unitId]
+  }
+  return scopeUnitIds
 }
 
 function employeeDetailsFromLive(
@@ -121,9 +145,9 @@ function employeeDetailsFromLive(
 
 export async function listAppraisals(
   query: AppraisalListQuery,
-  scopeSectionIds: number[] | null = null,
+  scopeUnitIds: string[] | null = null,
 ): Promise<{ items: AppraisalListItem[]; total: number }> {
-  const matricFilter = await matricsForFilters(query, scopeSectionIds)
+  const matricFilter = await matricsForFilters(query, scopeUnitIds)
 
   if (matricFilter && matricFilter.length === 0) {
     return { items: [], total: 0 }
@@ -146,7 +170,7 @@ export async function listAppraisals(
     ),
   ]
 
-  const [people, awards] = await Promise.all([
+  const [people, awards, allowedUnits] = await Promise.all([
     resolveLiveEmployees(matrics),
     awardIds.length
       ? prisma.tbl_award.findMany({
@@ -154,6 +178,7 @@ export async function listAppraisals(
           select: { id: true, award: true },
         })
       : Promise.resolve([]),
+    effectiveUnitFilter(query, scopeUnitIds),
   ])
 
   const awardById = new Map(awards.map((a) => [a.id, a.award ?? null]))
@@ -162,6 +187,14 @@ export async function listAppraisals(
   for (const row of rows) {
     const live = row.matric ? people.get(row.matric) : undefined
     if (!live) continue
+    // findMatriculesForUnits matches any historical validated movement;
+    // keep only employees whose current posting is still in scope.
+    if (
+      allowedUnits &&
+      (!live.codeUnit || !unitInScope(live.codeUnit, allowedUnits))
+    ) {
+      continue
+    }
     items.push({
       id: row.id,
       appyear: row.appyear,

@@ -89,8 +89,10 @@ const appraisals = new Hono<{ Variables: AppVariables }>()
   .get('/', zValidator('query', AppraisalListQuerySchema), async (c) => {
     const user = c.get('currentUser')
     const query = c.req.valid('query')
-    const scopeSectionIds = await sectionIdsForUser(user)
-    const data = await listAppraisals(query, scopeSectionIds)
+    // Appraisals are scoped by current unit posting, not by sections.
+    // sectionIdsForUser → unit round-trip drops units with no sections.
+    const scopeUnitIds = await unitIdsForUser(user)
+    const data = await listAppraisals(query, scopeUnitIds)
     return c.json(data)
   })
   .get('/awards', async (c) => c.json(await listAwards()))

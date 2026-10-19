@@ -5,329 +5,147 @@ import type {
   SectionOption,
   UnitOption,
   User,
-} from '@personel-management-app/shared'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createApiClient } from '../api/client'
-import { formatDisplayDate } from '../lib/format-date'
-import { LOGO_DATA_URI } from '../lib/logo'
-import {
-  buildReportFooterHtml,
-  REPORT_FOOTER_PRINT_CSS,
-} from './ReportFooter'
-import {
-  buildReportHeaderHtml,
-  REPORT_HEADER_PRINT_CSS,
-} from './ReportHeader'
-import { ReportPreviewConsole } from './ReportPreviewConsole'
-import { Card, CardContent } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
+} from "@personel-management-app/shared";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createApiClient } from "../api/client";
+import { buildAppraisalSummaryPrintHtml } from "../lib/appraisal-summary-print";
+import { ReportPreviewConsole } from "./ReportPreviewConsole";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from "@/components/ui/select";
 
 type AppraisalSummaryConsoleProps = {
-  user: User
-  financialYear: FinancialYear | null
-  onClose: () => void
-}
+  user: User;
+  financialYear: FinancialYear | null;
+  onClose: () => void;
+};
 
-const ALL_VALUE = '__all__'
-const EMPTY_SECTIONS: AppraisalSummarySection[] = []
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-function formatNumber(value: number): string {
-  return value.toLocaleString('en-US')
-}
-
-function buildPrintHtml(
-  sections: AppraisalSummarySection[],
-  appyear: number | null,
-): string {
-  const pageCount = sections.length
-  const title = `${appyear ?? '—'} PERFORMANCE APPRAISALS 1 - 3`
-  const pages = sections
-    .map((section, index) => {
-      const bodyRows = section.rows
-        .map(
-          (row) => `
-        <tr>
-          <td class="c">${row.sn}</td>
-          <td class="c">${escapeHtml(row.matric)}</td>
-          <td class="u wrap"><div>${escapeHtml(row.names ?? '')}</div></td>
-          <td class="u wrap"><div>${escapeHtml(row.designation ?? '')}</div></td>
-          <td class="c">${escapeHtml(formatDisplayDate(row.dateEng))}</td>
-          <td class="c">${escapeHtml(row.lengthService ?? '')}</td>
-          <td class="c">${escapeHtml(formatDisplayDate(row.dateLpro))}</td>
-          <td class="c">${escapeHtml(formatDisplayDate(row.dateLmer))}</td>
-          <td class="c">${escapeHtml(formatDisplayDate(row.dateLstat))}</td>
-          <td class="c">${escapeHtml(row.preCat ?? '')}</td>
-          <td class="c">${escapeHtml(row.proCat ?? '')}</td>
-          <td class="r">${formatNumber(row.preSalary)}</td>
-          <td class="r">${formatNumber(row.proSalary)}</td>
-          <td class="r">${formatNumber(row.finIncMonth)}</td>
-          <td class="r">${formatNumber(row.finIncYear)}</td>
-          <td class="wrap"><div>${escapeHtml(row.award ?? '')}</div></td>
-        </tr>`,
-        )
-        .join('')
-
-      const headerHtml = buildReportHeaderHtml({
-        department: section.groupName,
-        serviceName: section.unitName,
-        title,
-        logoDataUri: LOGO_DATA_URI,
-        escapeHtml,
-      })
-      const signatureHtml = buildReportFooterHtml({
-        name: section.signatoryName,
-        label: section.signatoryTitle,
-        escapeHtml,
-      })
-
-      return `
-      <section class="page">
-        ${headerHtml}
-        <p class="section-label">SECTION: ${escapeHtml(section.sectionName)}</p>
-        <table>
-          <thead>
-            <tr>
-              <th rowspan="2">SN</th>
-              <th rowspan="2">Mat No</th>
-              <th rowspan="2">Name</th>
-              <th rowspan="2">Design</th>
-              <th rowspan="2">D. Eng</th>
-              <th rowspan="2">Dur in Post (Yr)</th>
-              <th colspan="3">Date of Last</th>
-              <th colspan="2">Cat/Ech</th>
-              <th colspan="2">Salary</th>
-              <th colspan="2">Fin. Inc</th>
-              <th rowspan="2">EM's Remarks</th>
-            </tr>
-            <tr>
-              <th>Prom/Recl</th>
-              <th>Merit</th>
-              <th>Stat.</th>
-              <th>Pres</th>
-              <th>Pro</th>
-              <th>Pres</th>
-              <th>Pros</th>
-              <th>Per Month</th>
-              <th>Per Year</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${bodyRows}
-            <tr class="total">
-              <td colspan="11" class="r">TOTAL</td>
-              <td class="r">${formatNumber(section.totals.preSalary)}</td>
-              <td class="r">${formatNumber(section.totals.proSalary)}</td>
-              <td class="r">${formatNumber(section.totals.finIncMonth)}</td>
-              <td class="r">${formatNumber(section.totals.finIncYear)}</td>
-              <td></td>
-            </tr>
-          </tbody>
-        </table>
-        ${signatureHtml}
-        <footer class="ftr">
-          <span>ANNUAL SALARY REVIEW FOR ${appyear ?? '—'}</span>
-          <span>Page ${index + 1} of ${pageCount}</span>
-        </footer>
-      </section>`
-    })
-    .join('')
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Appraisal Summary ${appyear ?? ''}</title>
-  <style>
-    @page { size: A4 landscape; margin: 8mm 2mm 8mm 2mm; }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: "Arial Narrow", Arial, sans-serif; color: #000; font-size: 9pt; }
-    .page {
-      page-break-after: always;
-      display: flex;
-      flex-direction: column;
-      min-height: 192mm;
-    }
-    .page:last-child { page-break-after: auto; }
-    ${REPORT_HEADER_PRINT_CSS}
-    ${REPORT_FOOTER_PRINT_CSS}
-    .rh-company-name, .rh-line, .rh-title, .rh-tiles span,
-    .rf, .rf-name, .rf-label { font-family: "Arial Narrow", Arial, sans-serif; font-size: 10pt; }
-    .section-label { margin: 6px 0 0; text-align: left; font-weight: 700; text-transform: uppercase; font-size: 10pt; }
-    table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 10pt; }
-    th, td { border: 1px solid #000; padding: 2px 3px; vertical-align: middle; font-size: 10pt; }
-    th { text-transform: uppercase; }
-    .c { text-align: center; }
-    .r { text-align: right; }
-    .u { text-transform: uppercase; }
-    td.wrap div {
-      display: inline-block;
-      max-width: 42mm;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      vertical-align: bottom;
-    }
-    .total { font-weight: 700; }
-    .ftr { margin-top: auto; display: flex; justify-content: space-between; border-top: 1px solid #000; padding-top: 4px; font-weight: 700; text-transform: uppercase; font-size: 10pt; }
-  </style>
-</head>
-<body>${pages}</body>
-</html>`
-}
+const ALL_VALUE = "__all__";
+const EMPTY_SECTIONS: AppraisalSummarySection[] = [];
 
 export function AppraisalSummaryConsole({
   user,
   financialYear,
   onClose,
 }: AppraisalSummaryConsoleProps) {
-  const [years, setYears] = useState<number[]>([])
-  const [appyear, setAppyear] = useState<number | null>(null)
-  const [unitId, setUnitId] = useState('')
-  const [sectionId, setSectionId] = useState('')
-  const [units, setUnits] = useState<UnitOption[]>([])
-  const [sections, setSections] = useState<SectionOption[]>([])
-  const [report, setReport] = useState<AppraisalSummaryResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [status, setStatus] = useState<string | null>(null)
-  const [yearsLoaded, setYearsLoaded] = useState(false)
+  const [unitId, setUnitId] = useState("");
+  const [sectionId, setSectionId] = useState("");
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [sections, setSections] = useState<SectionOption[]>([]);
+  const [report, setReport] = useState<AppraisalSummaryResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
 
-  const unrestricted = user.jurisdiction === 'all'
-  const scope = user.jurisdiction
-  const unitLocked = !unrestricted && (scope === 'unit' || scope === 'section')
-  const sectionLocked = !unrestricted && scope === 'section'
-  const sessionYear = financialYear?.appyear ?? null
+  const appyear = financialYear?.appyear ?? null;
+  const unrestricted = user.jurisdiction === "all";
+  const scope = user.jurisdiction;
+  const unitLocked = !unrestricted && (scope === "unit" || scope === "section");
+  const sectionLocked = !unrestricted && scope === "section";
 
   const loadLookups = useCallback(async () => {
-    const client = await createApiClient()
-    const [unitsRes, yearsRes] = await Promise.all([
-      client.appraisals.units.$get(),
-      client.reports['appraisal-letter-years'].$get(),
-    ])
-    if (unitsRes.ok) setUnits(await unitsRes.json())
-    if (!yearsRes.ok) {
-      const body = (await yearsRes.json().catch(() => null)) as {
-        error?: string
-      } | null
-      setYears([])
-      setStatus(body?.error ?? `Failed to load years (${yearsRes.status})`)
-      return
-    }
-    const data = await yearsRes.json()
-    setYears(data.years)
-    setAppyear((prev) => {
-      if (prev != null && data.years.includes(prev)) return prev
-      if (sessionYear != null && data.years.includes(sessionYear)) {
-        return sessionYear
-      }
-      return data.years[0] ?? null
-    })
-    setYearsLoaded(true)
-  }, [sessionYear])
+    const client = await createApiClient();
+    const unitsRes = await client.appraisals.units.$get();
+    if (unitsRes.ok) setUnits(await unitsRes.json());
+  }, []);
 
   const loadSections = useCallback(async (unit: string) => {
-    const client = await createApiClient()
+    const client = await createApiClient();
     const res = await client.appraisals.sections.$get({
       query: unit ? { unitId: unit } : {},
-    })
-    if (res.ok) setSections(await res.json())
-    else setSections([])
-  }, [])
+    });
+    if (res.ok) setSections(await res.json());
+    else setSections([]);
+  }, []);
 
   const loadReport = useCallback(async () => {
     if (appyear == null) {
-      setReport(null)
-      if (yearsLoaded) {
-        setStatus(
-          years.length === 0
-            ? 'No posted salary review data. Use Post on the Appraisal Console first, or import historic salary review.'
-            : 'Select a year with posted salary review data to load the summary.',
-        )
-      }
-      return
+      setReport(null);
+      setStatus(
+        user.permissions.canFinancialYears
+          ? "No open financial year is available."
+          : "Open a financial year before viewing the appraisal summary.",
+      );
+      return;
     }
-    setLoading(true)
-    setStatus(null)
+    setLoading(true);
+    setStatus(null);
     try {
-      const client = await createApiClient()
-      const res = await client.reports['appraisal-summary'].$get({
+      const client = await createApiClient();
+      const res = await client.reports["appraisal-summary"].$get({
         query: {
           appyear: String(appyear),
           ...(unitId ? { unitId } : {}),
           ...(sectionId ? { sectionId } : {}),
         },
-      })
+      });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
-          error?: string
-        } | null
-        throw new Error(body?.error ?? `Failed to load summary (${res.status})`)
+          error?: string;
+        } | null;
+        throw new Error(
+          body?.error ?? `Failed to load summary (${res.status})`,
+        );
       }
-      const data = (await res.json()) as AppraisalSummaryResponse
-      setReport(data)
+      const data = (await res.json()) as AppraisalSummaryResponse;
+      setReport(data);
       if (data.sections.length === 0) {
         setStatus(
           `No posted salary review data for year ${appyear}. Use Post on the Appraisal Console first.`,
-        )
+        );
       }
     } catch (err) {
-      setReport(null)
-      setStatus(err instanceof Error ? err.message : String(err))
+      setReport(null);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [appyear, unitId, sectionId, years.length, yearsLoaded])
+  }, [appyear, unitId, sectionId, user.permissions.canFinancialYears]);
 
   useEffect(() => {
-    void loadLookups()
-  }, [loadLookups])
+    void loadLookups();
+  }, [loadLookups]);
 
   useEffect(() => {
-    if (unrestricted) return
-    if (scope === 'unit' && user.unitId) setUnitId(user.unitId)
-    else if (scope === 'section') {
-      if (user.unitId) setUnitId(user.unitId)
-      else if (units.length === 1) setUnitId(units[0].id)
-      if (user.sectionId != null) setSectionId(String(user.sectionId))
-    } else if (scope === 'group' && units.length === 1) {
-      setUnitId(units[0].id)
+    if (unrestricted) return;
+    if (scope === "unit" && user.unitId) setUnitId(user.unitId);
+    else if (scope === "section") {
+      if (user.unitId) setUnitId(user.unitId);
+      else if (units.length === 1) setUnitId(units[0].id);
+      if (user.sectionId != null) setSectionId(String(user.sectionId));
+    } else if (scope === "group" && units.length === 1) {
+      setUnitId(units[0].id);
     }
-  }, [unrestricted, scope, user.unitId, user.sectionId, units])
+  }, [unrestricted, scope, user.unitId, user.sectionId, units]);
 
   useEffect(() => {
-    void loadSections(unitId)
-    if (!sectionLocked) setSectionId('')
-  }, [unitId, loadSections, sectionLocked])
+    void loadSections(unitId);
+    if (!sectionLocked) setSectionId("");
+  }, [unitId, loadSections, sectionLocked]);
 
   useEffect(() => {
-    void loadReport()
-  }, [loadReport])
+    void loadReport();
+  }, [loadReport]);
 
-  const sectionsData = report?.sections ?? EMPTY_SECTIONS
-  const printOptions = useMemo(() => ({ landscape: true }), [])
+  const sectionsData = report?.sections ?? EMPTY_SECTIONS;
+  const printOptions = useMemo(() => ({ landscape: true }), []);
   const defaultPdfName =
     appyear != null
       ? `appraisal-summary-${appyear}.pdf`
-      : 'appraisal-summary.pdf'
+      : "appraisal-summary.pdf";
   const printHtml = useMemo(
     () =>
-      sectionsData.length > 0 ? buildPrintHtml(sectionsData, appyear) : '',
+      sectionsData.length > 0
+        ? buildAppraisalSummaryPrintHtml(sectionsData, appyear)
+        : "",
     [sectionsData, appyear],
-  )
+  );
 
   return (
     <ReportPreviewConsole
@@ -346,22 +164,13 @@ export function AppraisalSummaryConsole({
           <CardContent className="flex flex-wrap items-end gap-3 px-3">
             <div className="grid gap-1">
               <Label>Appraisal Year</Label>
-              <Select
-                value={appyear != null ? String(appyear) : undefined}
-                onValueChange={(value) => setAppyear(Number(value))}
-                disabled={years.length === 0}
-              >
-                <SelectTrigger className="w-36">
-                  <SelectValue placeholder="Select year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {years.map((year) => (
-                    <SelectItem key={year} value={String(year)}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                className="w-36"
+                value={appyear != null ? String(appyear) : ""}
+                readOnly
+                disabled
+                placeholder="No year open"
+              />
             </div>
 
             <div className="grid gap-1">
@@ -369,7 +178,7 @@ export function AppraisalSummaryConsole({
               <Select
                 value={unitId || ALL_VALUE}
                 onValueChange={(value) =>
-                  setUnitId(value === ALL_VALUE ? '' : value)
+                  setUnitId(value === ALL_VALUE ? "" : value)
                 }
                 disabled={unitLocked}
               >
@@ -396,7 +205,7 @@ export function AppraisalSummaryConsole({
               <Select
                 value={sectionId || ALL_VALUE}
                 onValueChange={(value) =>
-                  setSectionId(value === ALL_VALUE ? '' : value)
+                  setSectionId(value === ALL_VALUE ? "" : value)
                 }
                 disabled={sectionLocked || (!unitId && sections.length === 0)}
               >
@@ -424,5 +233,5 @@ export function AppraisalSummaryConsole({
         </Card>
       }
     />
-  )
+  );
 }

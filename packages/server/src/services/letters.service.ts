@@ -228,9 +228,9 @@ export async function buildAppraisalLetters(
       groupId,
     )
     const throTitle = await resolveMemoThroTitle({
+      memoCode: 'APPRAISAL',
       unitId,
       sectionId,
-      signatoryTitle: signatory?.title ?? null,
       asOf,
     })
 

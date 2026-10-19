@@ -108,7 +108,6 @@ export async function listLeaveDue(
     classifications,
     movements,
     pendingRequests,
-    supplySetting,
     motherSetting,
     policy,
     entitlement,
@@ -142,10 +141,6 @@ export async function listLeaveDue(
       where: { matricule: { in: matricules }, workflowStatus: 'PENDING' },
       select: { matricule: true },
     }),
-    prisma.tbl_leave_processing_setting.findUnique({
-      where: { id: 1 },
-      select: { userSupplyLastResumption: true },
-    }),
     prisma.tbl_leave_mother_setting.findUnique({
       where: { id: 1 },
       select: { daysPerChild: true, maxAgeYears: true },
@@ -168,12 +163,8 @@ export async function listLeaveDue(
     }),
   ])
 
-  const latestLeaveEnd = new Map<string, Date>()
   const latestResume = new Map<string, Date>()
   for (const row of histories) {
-    if (!latestLeaveEnd.has(row.matricule)) {
-      latestLeaveEnd.set(row.matricule, row.leaveEndDate)
-    }
     if (row.resumedDate) {
       const current = latestResume.get(row.matricule)
       if (!current || row.resumedDate > current) {
@@ -197,7 +188,6 @@ export async function listLeaveDue(
     }
   }
   const pending = new Set(pendingRequests.map((row) => row.matricule))
-  const supplyLastResumption = supplySetting?.userSupplyLastResumption ?? false
 
   const unitCodes = [
     ...new Set(
@@ -265,10 +255,8 @@ export async function listLeaveDue(
     if (!employment?.dateEng) continue
     const resumedDate = latestResume.get(employee.matricule) ?? null
     const accrualStartDate = leaveAccrualStart({
-      leaveEndDate: latestLeaveEnd.get(employee.matricule) ?? null,
       resumedDate,
       dateEng: employment.dateEng,
-      supplyLastResumption,
     })
     const months = completedMonths(accrualStartDate, asOf)
     if (months < MIN_DUE_MONTHS) continue

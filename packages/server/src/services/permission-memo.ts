@@ -280,9 +280,9 @@ export async function buildPermissionMemo(request: {
     asOf,
   })
   const throTitle = await resolveMemoThroTitle({
+    memoCode: 'PERMISSION',
     unitId: placement.unitId,
     sectionId: placement.sectionId,
-    signatoryTitle: signer?.title ?? null,
     asOf,
   })
   const span =

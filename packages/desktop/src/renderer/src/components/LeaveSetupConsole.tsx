@@ -82,9 +82,6 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
   })
   const [motherSaving, setMotherSaving] = useState(false)
   const [motherStatus, setMotherStatus] = useState<string | null>(null)
-  const [supplyLastResumption, setSupplyLastResumption] = useState(false)
-  const [supplySaving, setSupplySaving] = useState(false)
-  const [supplyStatus, setSupplyStatus] = useState<string | null>(null)
   const [open, setOpen] = useState<
     'policy' | 'entitlement' | 'rate' | 'seniority' | null
   >(null)
@@ -120,14 +117,13 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
     setStatus(null)
     try {
       const client = await createApiClient()
-      const [policyRes, entitlementRes, rateRes, bandRes, motherRes, supplyRes] =
+      const [policyRes, entitlementRes, rateRes, bandRes, motherRes] =
         await Promise.all([
           client.leave.policies.$get(),
           client.leave['entitlement-rules'].$get(),
           client.leave['monthly-rate-rules'].$get(),
           client.leave['seniority-rules'].$get(),
           client.leave['mother-settings'].$get(),
-          client.leave['processing-settings'].$get(),
         ])
       if (!policyRes.ok) throw new Error(await readError(policyRes, 'Failed to load policies'))
       if (!entitlementRes.ok) {
@@ -138,13 +134,6 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
       if (!motherRes.ok) {
         throw new Error(await readError(motherRes, "Failed to load mother's leave"))
       }
-      if (!supplyRes.ok) {
-        throw new Error(await readError(supplyRes, 'Failed to load leave settings'))
-      }
-      const supply = (await supplyRes.json()) as {
-        userSupplyLastResumption: boolean
-      }
-      setSupplyLastResumption(supply.userSupplyLastResumption)
       const mother = (await motherRes.json()) as {
         daysPerChild: number
         maxAgeYears: number
@@ -165,25 +154,6 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
   useEffect(() => {
     void load()
   }, [load])
-
-  async function saveSupply() {
-    setSupplySaving(true)
-    setSupplyStatus(null)
-    try {
-      const client = await createApiClient()
-      const res = await client.leave['processing-settings'].$put({
-        json: { userSupplyLastResumption: supplyLastResumption },
-      })
-      if (!res.ok) throw new Error(await readError(res, 'Save failed'))
-      const saved = (await res.json()) as { userSupplyLastResumption: boolean }
-      setSupplyLastResumption(saved.userSupplyLastResumption)
-      setSupplyStatus('Saved')
-    } catch (err) {
-      setSupplyStatus(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSupplySaving(false)
-    }
-  }
 
   async function saveMother() {
     setMotherSaving(true)
@@ -431,41 +401,6 @@ export function LeaveSetupConsole({ onClose }: LeaveSetupConsoleProps) {
           }}
         />
       </Section>
-
-      <section className="space-y-2 rounded-xl border bg-card p-4 text-card-foreground">
-        <div>
-          <h2 className="text-sm font-medium">Last resumption</h2>
-          <p className="text-sm text-muted-foreground">
-            When there is no leave history yet, let staff enter the last resumed
-            date on Apply leave. Off by default.
-          </p>
-        </div>
-        <form
-          className="flex flex-wrap items-center gap-3"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void saveSupply()
-          }}
-        >
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={supplyLastResumption}
-              onChange={(event) => {
-                setSupplyLastResumption(event.target.checked)
-                setSupplyStatus(null)
-              }}
-            />
-            Users supply the last resumed date
-          </label>
-          <Button type="submit" size="sm" disabled={supplySaving}>
-            {supplySaving ? 'Saving…' : 'Save'}
-          </Button>
-        </form>
-        {supplyStatus ? (
-          <p className="text-sm text-muted-foreground">{supplyStatus}</p>
-        ) : null}
-      </section>
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium">Mother&apos;s leave</h2>

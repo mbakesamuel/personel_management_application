@@ -1,12 +1,22 @@
 import type {
   AppraisalListItem,
+  AppraisalSummaryResponse,
   AwardOption,
   FinancialYear,
   SectionOption,
   UnitOption,
   User,
 } from "@personel-management-app/shared";
-import { FileSpreadsheet, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
+import {
+  FileSpreadsheet,
+  Pencil,
+  Plus,
+  Printer,
+  Save,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -15,6 +25,7 @@ import {
   type ReactNode,
 } from "react";
 import { createApiClient } from "../api/client";
+import { buildAppraisalSummaryPrintHtml } from "../lib/appraisal-summary-print";
 import {
   appraisalExcelDefaultName,
   buildAppraisalExcel,
@@ -22,6 +33,7 @@ import {
 } from "../lib/export-appraisal-excel";
 import { formatDisplayDate } from "../lib/format-date";
 import { AppraisalDetailModal } from "./AppraisalDetailModal";
+import { LetterPdfOverlay } from "./LetterPdfOverlay";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -76,11 +88,14 @@ export function AppraisalConsole({
   const [items, setItems] = useState<AppraisalListItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [posting, setPosting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [printHtml, setPrintHtml] = useState<string | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
 
   const appyear = financialYear?.appyear ?? null;
   const yearClosed = financialYear?.closed === true;
@@ -89,6 +104,8 @@ export function AppraisalConsole({
   const scope = user.jurisdiction;
   const unitLocked = !unrestricted && (scope === "unit" || scope === "section");
   const sectionLocked = !unrestricted && scope === "section";
+  const selectedUnit = units.find((unit) => unit.id === unitId) ?? null;
+  const showSectionFilter = selectedUnit?.splitIntoSections === true;
 
   const loadLookups = useCallback(async () => {
     const client = await createApiClient();
@@ -114,11 +131,9 @@ export function AppraisalConsole({
 
   const loadRows = useCallback(async () => {
     setLoading(true);
-    setProgress(15);
     setStatus(null);
     try {
       const client = await createApiClient();
-      setProgress(45);
       const res = await client.appraisals.$get({
         query: {
           ...(appyear != null ? { appyear: String(appyear) } : {}),
@@ -126,21 +141,17 @@ export function AppraisalConsole({
           ...(sectionId ? { sectionId } : {}),
         },
       });
-      setProgress(80);
       if (!res.ok) {
         throw new Error(await res.text());
       }
       const data = await res.json();
       setItems(data.items);
       setSelectedId(null);
-      setProgress(100);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err));
       setItems([]);
-      setProgress(0);
     } finally {
       setLoading(false);
-      window.setTimeout(() => setProgress(0), 400);
     }
   }, [appyear, unitId, sectionId]);
 
@@ -167,6 +178,12 @@ export function AppraisalConsole({
       setSectionId("");
     }
   }, [unitId, loadSections, sectionLocked]);
+
+  useEffect(() => {
+    if (!sectionLocked && !showSectionFilter) {
+      setSectionId("");
+    }
+  }, [showSectionFilter, sectionLocked]);
 
   useEffect(() => {
     void loadRows();
@@ -287,6 +304,7 @@ export function AppraisalConsole({
 
     const CHUNK = 40;
     setLoading(true);
+    setPosting(true);
     setProgress(0);
     setStatus("Starting salary review post…");
     let postedTotal = 0;
@@ -310,6 +328,7 @@ export function AppraisalConsole({
       const { ids, total } = await startRes.json();
       if (total === 0) {
         setProgress(0);
+        setPosting(false);
         setStatus(`No appraisal records found for year ${appyear}.`);
         return;
       }
@@ -346,9 +365,62 @@ export function AppraisalConsole({
         `Successfully posted salary review for appraisal year ${appyear}. ${postedTotal} record(s) posted` +
           (skippedTotal > 0 ? `, ${skippedTotal} skipped.` : "."),
       );
-      window.setTimeout(() => setProgress(0), 600);
+      window.setTimeout(() => {
+        setProgress(0);
+        setPosting(false);
+      }, 600);
     } catch (err) {
       setProgress(0);
+      setPosting(false);
+      setStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePrintSummary() {
+    if (appyear == null) {
+      setStatus(
+        user.permissions.canFinancialYears
+          ? "No open financial year is available."
+          : "Open a financial year before printing the appraisal summary.",
+      );
+      return;
+    }
+
+    setLoading(true);
+    setStatus(null);
+    try {
+      const client = await createApiClient();
+      const res = await client.reports["appraisal-summary"].$get({
+        query: {
+          appyear: String(appyear),
+          ...(unitId ? { unitId } : {}),
+          ...(sectionId ? { sectionId } : {}),
+        },
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(
+          body?.error ?? `Failed to load summary (${res.status})`,
+        );
+      }
+      const data = (await res.json()) as AppraisalSummaryResponse;
+      if (data.sections.length === 0) {
+        setPrintHtml(null);
+        setPrintOpen(false);
+        setStatus(
+          `No posted salary review data for year ${appyear}. Use Post on the Appraisal Console first.`,
+        );
+        return;
+      }
+      setPrintHtml(buildAppraisalSummaryPrintHtml(data.sections, appyear));
+      setPrintOpen(true);
+    } catch (err) {
+      setPrintHtml(null);
+      setPrintOpen(false);
       setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -455,7 +527,7 @@ export function AppraisalConsole({
 
       <Card className="shrink-0 py-3">
         <CardContent className="flex flex-wrap items-end gap-3 px-3">
-         {/*  <div className="grid gap-1">
+          <div className="grid gap-1">
             <Label>Appraisal Year</Label>
             <Input
               className="w-36"
@@ -465,16 +537,16 @@ export function AppraisalConsole({
               placeholder="No year open"
             />
           </div>
- */}
+
           <div className="grid gap-1">
             <Label>Unit</Label>
             <div className="flex gap-2">
-              <Input
+              {/* <Input
                 className="w-20"
                 value={unitId}
                 readOnly
                 placeholder="ID"
-              />
+              /> */}
               <Select
                 value={unitId || ALL_VALUE}
                 onValueChange={(value) =>
@@ -501,37 +573,39 @@ export function AppraisalConsole({
             </div>
           </div>
 
-          <div className="grid gap-1">
-            <Label>Filter By Section</Label>
-            <Select
-              value={sectionId || ALL_VALUE}
-              onValueChange={(value) =>
-                setSectionId(value === ALL_VALUE ? "" : value)
-              }
-              disabled={
-                sectionLocked || (!unitId && sections.length === 0)
-              }
-            >
-              <SelectTrigger className="min-w-48">
-                <SelectValue placeholder="All sections" />
-              </SelectTrigger>
-              <SelectContent>
-                {!sectionLocked ? (
-                  <SelectItem value={ALL_VALUE}>All sections</SelectItem>
-                ) : null}
-                {sections
-                  .filter(
-                    (section) =>
-                      section.active || String(section.id) === sectionId,
-                  )
-                  .map((section) => (
-                  <SelectItem key={section.id} value={String(section.id)}>
-                    {section.section ?? `Section #${section.id}`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {showSectionFilter ? (
+            <div className="grid gap-1">
+              <Label>Filter By Section</Label>
+              <Select
+                value={sectionId || ALL_VALUE}
+                onValueChange={(value) =>
+                  setSectionId(value === ALL_VALUE ? "" : value)
+                }
+                disabled={
+                  sectionLocked || (!unitId && sections.length === 0)
+                }
+              >
+                <SelectTrigger className="min-w-48">
+                  <SelectValue placeholder="All sections" />
+                </SelectTrigger>
+                <SelectContent>
+                  {!sectionLocked ? (
+                    <SelectItem value={ALL_VALUE}>All sections</SelectItem>
+                  ) : null}
+                  {sections
+                    .filter(
+                      (section) =>
+                        section.active || String(section.id) === sectionId,
+                    )
+                    .map((section) => (
+                      <SelectItem key={section.id} value={String(section.id)}>
+                        {section.section ?? `Section #${section.id}`}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
 
           <div className="grid min-w-56 flex-1 gap-1">
             <Label htmlFor="appraisal-search">Search</Label>
@@ -656,6 +730,12 @@ export function AppraisalConsole({
             disabled={loading || !canMutate}
           />
           <ActionButton
+            icon={<Printer size={16} />}
+            label="Print"
+            onClick={() => void handlePrintSummary()}
+            disabled={loading || appyear == null}
+          />
+          <ActionButton
             icon={<FileSpreadsheet size={16} />}
             label="Export Excel"
             onClick={() => void handleExportExcel()}
@@ -671,10 +751,12 @@ export function AppraisalConsole({
         </aside>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3 rounded-md border bg-background px-3 py-2">
-        <span className="text-sm font-semibold">Progress</span>
-        <Progress value={progress} className="flex-1" />
-      </div>
+      {posting ? (
+        <div className="flex shrink-0 items-center gap-3 rounded-md border bg-background px-3 py-2">
+          <span className="text-sm font-semibold">Progress</span>
+          <Progress value={progress} className="flex-1" />
+        </div>
+      ) : null}
 
       {status ? (
         <Alert className="shrink-0">
@@ -709,6 +791,23 @@ export function AppraisalConsole({
           awards={awards}
           onClose={() => setModalOpen(false)}
           onSaved={() => void loadRows()}
+        />
+      ) : null}
+
+      {printOpen && printHtml ? (
+        <LetterPdfOverlay
+          html={printHtml}
+          title="Appraisal Summary"
+          landscape
+          defaultPdfName={
+            appyear != null
+              ? `appraisal-summary-${appyear}.pdf`
+              : "appraisal-summary.pdf"
+          }
+          onClose={() => {
+            setPrintOpen(false);
+            setPrintHtml(null);
+          }}
         />
       ) : null}
     </section>

@@ -967,10 +967,6 @@ export const PublicHolidayCreateSchema = PublicHolidayFieldsSchema.refine(
 )
 export const PublicHolidayUpdateSchema = PublicHolidayFieldsSchema.partial()
 
-export const LeaveProcessingSettingSchema = z.object({
-  userSupplyLastResumption: z.boolean(),
-})
-
 export const LeaveMotherSettingSchema = z.object({
   daysPerChild: z.number().int().min(0),
   maxAgeYears: z.number().int().min(0),
@@ -1175,9 +1171,6 @@ export type PermissionRequestUpdateInput = z.infer<
 >
 export type PublicHolidayCreateInput = z.infer<typeof PublicHolidayCreateSchema>
 export type PublicHolidayUpdateInput = z.infer<typeof PublicHolidayUpdateSchema>
-export type LeaveProcessingSettingInput = z.infer<
-  typeof LeaveProcessingSettingSchema
->
 export type LeaveMotherSettingInput = z.infer<typeof LeaveMotherSettingSchema>
 export type LeaveLetterSettingInput = z.infer<typeof LeaveLetterSettingSchema>
 export type LeaveResumptionCreateInput = z.infer<

@@ -126,6 +126,18 @@ export function addUtcDays(date: Date, days: number): Date {
   return next
 }
 
+function isWorkingDay(
+  date: Date,
+  holidayKeys: Set<string>,
+  saturdayWorking: boolean,
+): boolean {
+  const weekday = date.getUTCDay()
+  if (weekday === 0) return false
+  if (!saturdayWorking && weekday === 6) return false
+  const key = monthDayKey(date.getUTCMonth() + 1, date.getUTCDate())
+  return !holidayKeys.has(key)
+}
+
 export function workingEndDate(
   start: Date,
   days: number,
@@ -136,17 +148,28 @@ export function workingEndDate(
   let cursor = new Date(start.getTime())
   let counted = 0
   for (let guard = 0; guard < days * 4 + 400; guard += 1) {
-    const weekday = cursor.getUTCDay()
-    const sunday = weekday === 0
-    const saturdayOff = !saturdayWorking && weekday === 6
-    const key = monthDayKey(cursor.getUTCMonth() + 1, cursor.getUTCDate())
-    if (!sunday && !saturdayOff && !keys.has(key)) {
+    if (isWorkingDay(cursor, keys, saturdayWorking)) {
       counted += 1
       if (counted === days) return cursor
     }
     cursor = addUtcDays(cursor, 1)
   }
   throw new Error('Could not place the leave days on the calendar')
+}
+
+/** Last working day strictly before `date` (Sundays / optional Saturdays / holidays off). */
+export function lastWorkingDayBefore(
+  date: Date,
+  holidays: { month: number; day: number }[],
+  saturdayWorking = true,
+): Date {
+  const keys = new Set(holidays.map((holiday) => monthDayKey(holiday.month, holiday.day)))
+  let cursor = addUtcDays(date, -1)
+  for (let guard = 0; guard < 400; guard += 1) {
+    if (isWorkingDay(cursor, keys, saturdayWorking)) return cursor
+    cursor = addUtcDays(cursor, -1)
+  }
+  throw new Error('Could not find a working day before the leave start')
 }
 
 export function resumptionDate(end: Date, category9: boolean): Date {

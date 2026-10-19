@@ -186,9 +186,9 @@ export async function buildAllocationLetters(
     })
 
     const throTitle = await resolveMemoThroTitle({
+      memoCode: 'ALLOWANCE_ALLOCATION',
       unitId,
       sectionId: filterSectionId,
-      signatoryTitle: signer.title,
       asOf,
     })
 

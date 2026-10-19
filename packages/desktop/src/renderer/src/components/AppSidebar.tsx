@@ -54,9 +54,7 @@ export type AppView =
   | "dashboard-groups"
   | "jurisdictions"
   | "letters"
-  | "appraisal-summary"
-  | "allocation-letters"
-  | "allowance-change-letters"
+  | "allocation-letters"  | "allowance-change-letters"
   | "communication-lines"
   | "operator-exports"
 

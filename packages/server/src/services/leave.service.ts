@@ -13,7 +13,6 @@ import type {
   LeaveEntitlementUpdateInput,
   LeaveLetterSettingInput,
   LeaveMotherSettingInput,
-  LeaveProcessingSettingInput,
   LeaveMonthlyRateCreateInput,
   LeaveMonthlyRateUpdateInput,
   LeavePolicyCreateInput,
@@ -55,6 +54,7 @@ import { buildLeaveCalculationReportHtml } from './leave-calculation-report.js'
 import {
   addUtcDays,
   buildLeaveMemoHtml,
+  lastWorkingDayBefore,
   resumptionDate,
   roundUp,
   workingEndDate,
@@ -257,14 +257,10 @@ export function completedMonths(start: Date, end: Date): number {
 }
 
 export function leaveAccrualStart(input: {
-  leaveEndDate: Date | null
   resumedDate: Date | null
   dateEng: Date
-  supplyLastResumption: boolean
 }): Date {
-  if (input.leaveEndDate) return input.leaveEndDate
-  if (input.supplyLastResumption && input.resumedDate) return input.resumedDate
-  return input.dateEng
+  return input.resumedDate ?? input.dateEng
 }
 
 export function annualLeaveAccrual(input: {
@@ -925,22 +921,6 @@ export const leaveSetupService = {
       return { id }
     },
   },
-  processingSettings: {
-    async get() {
-      return prisma.tbl_leave_processing_setting.upsert({
-        where: { id: 1 },
-        create: { id: 1 },
-        update: {},
-      })
-    },
-    async update(input: LeaveProcessingSettingInput) {
-      return prisma.tbl_leave_processing_setting.upsert({
-        where: { id: 1 },
-        create: { id: 1, ...input },
-        update: input,
-      })
-    },
-  },
   motherSettings: {
     async get() {
       return prisma.tbl_leave_mother_setting.upsert({
@@ -973,14 +953,6 @@ export const leaveSetupService = {
       })
     },
   },
-}
-
-async function acceptedSuppliedResumedDate(
-  value: string | null | undefined,
-): Promise<Date | null | undefined> {
-  const setting = await leaveSetupService.processingSettings.get()
-  if (!setting.userSupplyLastResumption) return undefined
-  return parseOptionalDate(value, 'suppliedResumedDate')
 }
 
 export const leaveRequestService = {
@@ -1070,8 +1042,9 @@ export const leaveRequestService = {
   async create(userId: number, input: LeaveRequestCreateInput) {
     await requireEmployee(input.matricule)
     await requireLeaveType(input.leaveTypeId)
-    const suppliedResumedDate = await acceptedSuppliedResumedDate(
+    const suppliedResumedDate = parseOptionalDate(
       input.suppliedResumedDate,
+      'suppliedResumedDate',
     )
     return withPrisma(async () => {
       const row = await prisma.tbl_leave_request.create({
@@ -1097,8 +1070,9 @@ export const leaveRequestService = {
     if (input.leaveTypeId !== undefined) {
       await requireLeaveType(input.leaveTypeId)
     }
-    const suppliedResumedDate = await acceptedSuppliedResumedDate(
+    const suppliedResumedDate = parseOptionalDate(
       input.suppliedResumedDate,
+      'suppliedResumedDate',
     )
     return withPrisma(async () => {
       const row = await prisma.tbl_leave_request.update({
@@ -1168,42 +1142,63 @@ export const leaveRequestService = {
         400,
       )
     }
-    const applicationDate = request.applicationDate
-    const history = await prisma.tbl_employee_leave_history.findFirst({
-      where: { matricule: request.matricule },
-      orderBy: { leaveEndDate: 'desc' },
-      select: { leaveEndDate: true },
-    })
-    const supplyLastResumption = (
-      await leaveSetupService.processingSettings.get()
-    ).userSupplyLastResumption
-    const accrualStart = leaveAccrualStart({
-      leaveEndDate: history?.leaveEndDate ?? null,
-      resumedDate: request.suppliedResumedDate,
-      dateEng: employment.dateEng,
-      supplyLastResumption,
-    })
-    if (applicationDate < accrualStart) {
+    const [historyResume, holidays, letterSettings] = await Promise.all([
+      prisma.tbl_employee_leave_history.findFirst({
+        where: { matricule: request.matricule, resumedDate: { not: null } },
+        orderBy: { resumedDate: 'desc' },
+        select: { resumedDate: true },
+      }),
+      prisma.tbl_public_holiday.findMany({
+        where: { active: true },
+        select: { month: true, day: true },
+      }),
+      prisma.tbl_leave_letter_setting.upsert({
+        where: { id: 1 },
+        create: { id: 1 },
+        update: {},
+        select: { saturdayWorking: true },
+      }),
+    ])
+    let accrualEnd: Date
+    try {
+      accrualEnd = lastWorkingDayBefore(
+        request.startDate,
+        holidays,
+        letterSettings.saturdayWorking,
+      )
+    } catch {
       throw new PersonnelWorkflowError(
-        'Application date is before the accrual start',
+        'Could not find a working day before the leave start date',
+        400,
+      )
+    }
+    const resumedForStart =
+      historyResume?.resumedDate ?? request.suppliedResumedDate ?? null
+    const accrualStart = leaveAccrualStart({
+      resumedDate: resumedForStart,
+      dateEng: employment.dateEng,
+    })
+    if (accrualEnd < accrualStart) {
+      throw new PersonnelWorkflowError(
+        'Accrual end is before the accrual start',
         400,
       )
     }
     const policy = await prisma.tbl_leave_calculation_policy.findFirst({
-      where: effectiveOn(applicationDate),
+      where: effectiveOn(accrualEnd),
       orderBy: { effectiveFrom: 'desc' },
     })
     if (!policy) {
       throw new PersonnelWorkflowError(
-        'No active leave calculation policy covers the application date',
+        'No active leave calculation policy covers the accrual end date',
         400,
       )
     }
-    const serviceYears = completedYears(employment.dateEng, applicationDate)
-    const eligibleMonths = completedMonths(accrualStart, applicationDate)
+    const serviceYears = completedYears(employment.dateEng, accrualEnd)
+    const eligibleMonths = completedMonths(accrualStart, accrualEnd)
     const seniority = await prisma.tbl_leave_seniority_rule.findFirst({
       where: {
-        ...effectiveOn(applicationDate),
+        ...effectiveOn(accrualEnd),
         minYears: { lte: serviceYears },
         OR: [{ maxYears: null }, { maxYears: { gte: serviceYears } }],
       },
@@ -1219,24 +1214,24 @@ export const leaveRequestService = {
     let monthlyDays: Prisma.Decimal | null = null
     if (policy.method === 'METHOD_1') {
       const entitlement = await prisma.tbl_leave_entitlement_rule.findFirst({
-        where: effectiveOn(applicationDate),
+        where: effectiveOn(accrualEnd),
         orderBy: { effectiveFrom: 'desc' },
       })
       if (!entitlement) {
         throw new PersonnelWorkflowError(
-          'No entitlement rule covers the application date',
+          'No entitlement rule covers the accrual end date',
           400,
         )
       }
       annualDays = entitlement.annualDays
     } else {
       const rate = await prisma.tbl_leave_monthly_rate_rule.findFirst({
-        where: effectiveOn(applicationDate),
+        where: effectiveOn(accrualEnd),
         orderBy: { effectiveFrom: 'desc' },
       })
       if (!rate) {
         throw new PersonnelWorkflowError(
-          'No monthly rate covers the application date',
+          'No monthly rate covers the accrual end date',
           400,
         )
       }
@@ -1249,7 +1244,7 @@ export const leaveRequestService = {
       seniorityBonusDays: seniority.bonusDays,
       eligibleMonths,
     })
-    const mothersLeave = await mothersLeaveFor(request.matricule, applicationDate)
+    const mothersLeave = await mothersLeaveFor(request.matricule, accrualEnd)
     if (request.calculations.length > 0) {
       await prisma.tbl_leave_calculation.deleteMany({
         where: { id: { in: request.calculations.map((row) => row.id) } },
@@ -1261,7 +1256,7 @@ export const leaveRequestService = {
         leaveRequestId: request.id,
         policyId: policy.id,
         accrualStartDate: accrualStart,
-        accrualEndDate: applicationDate,
+        accrualEndDate: accrualEnd,
         serviceYears,
         eligibleMonths,
         basicDays: money(accrual.basicDays, 2),
@@ -1374,6 +1369,7 @@ export const leaveRequestService = {
         data: {
           matricule: row.matricule,
           leaveGrantId: grant.id,
+          leaveTypeId: row.leaveTypeId,
           leaveStartDate: row.startDate,
           leaveEndDate: prepared.endDate,
           daysGranted: prepared.daysTakenNow,
@@ -1491,7 +1487,6 @@ export const leaveRequestService = {
       fromTitle: signer.fromTitle,
       throTitle: await leaveThroTitle({
         matricule: memo.leaveRequest.matricule,
-        signatoryTitle: signer.signatoryTitle,
         asOf: todayUtc(),
       }),
       signatoryPreface: memo.signatoryPreface,
@@ -1523,10 +1518,10 @@ export const leaveRequestService = {
     if (!snapshot) {
       throw new PersonnelNotFoundError('Leave has not been calculated')
     }
-    const applicationDate = snapshot.accrualEndDate
+    const accrualEndDate = snapshot.accrualEndDate
     const [
       live,
-      history,
+      historyResume,
       employment,
       motherSetting,
       seniorityRules,
@@ -1537,9 +1532,9 @@ export const leaveRequestService = {
     ] = await Promise.all([
       resolveLiveEmployee(request.matricule),
       prisma.tbl_employee_leave_history.findFirst({
-        where: { matricule: request.matricule },
-        orderBy: { leaveEndDate: 'desc' },
-        select: { leaveEndDate: true },
+        where: { matricule: request.matricule, resumedDate: { not: null } },
+        orderBy: { resumedDate: 'desc' },
+        select: { resumedDate: true },
       }),
       prisma.tbl_emp_employment.findFirst({
         where: {
@@ -1551,15 +1546,15 @@ export const leaveRequestService = {
       }),
       prisma.tbl_leave_mother_setting.findUnique({ where: { id: 1 } }),
       prisma.tbl_leave_seniority_rule.findMany({
-        where: effectiveOn(applicationDate),
+        where: effectiveOn(accrualEndDate),
         orderBy: { minYears: 'desc' },
       }),
       prisma.tbl_leave_entitlement_rule.findFirst({
-        where: effectiveOn(applicationDate),
+        where: effectiveOn(accrualEndDate),
         orderBy: { effectiveFrom: 'desc' },
       }),
       prisma.tbl_leave_monthly_rate_rule.findFirst({
-        where: effectiveOn(applicationDate),
+        where: effectiveOn(accrualEndDate),
         orderBy: { effectiveFrom: 'desc' },
       }),
       prisma.tbl_permission_account.findUnique({
@@ -1571,15 +1566,12 @@ export const leaveRequestService = {
         select: { balanceDays: true },
       }),
     ])
-    const supplyLastResumption = (
-      await leaveSetupService.processingSettings.get()
-    ).userSupplyLastResumption
     const startKey = utcDay(snapshot.accrualStartDate)
     const accrualStartReason =
-      history?.leaveEndDate && utcDay(history.leaveEndDate) === startKey
-        ? 'the end date of the previous leave'
-        : supplyLastResumption &&
-            request.suppliedResumedDate &&
+      historyResume?.resumedDate &&
+      utcDay(historyResume.resumedDate) === startKey
+        ? 'the last resumption date'
+        : request.suppliedResumedDate &&
             utcDay(request.suppliedResumedDate) === startKey
           ? 'the resumption date entered on the request'
           : employment?.dateEng && utcDay(employment.dateEng) === startKey
@@ -1636,9 +1628,10 @@ export const leaveRequestService = {
         employeeName: live?.names ?? request.matricule,
         matricule: request.matricule,
         leaveTypeName: request.leaveType.name,
-        applicationDate,
+        applicationDate: request.applicationDate,
         calculatedAt: snapshot.calculatedAt,
         accrualStartDate: snapshot.accrualStartDate,
+        accrualEndDate,
         accrualStartReason,
         engagementDate: employment?.dateEng ?? live?.dateEng ?? null,
         eligibleMonths: Number(snapshot.eligibleMonths),
@@ -1925,20 +1918,32 @@ export const leaveRequestService = {
     const rows = await prisma.tbl_employee_leave_history.findMany({
       where: { matricule },
       orderBy: { leaveEndDate: 'desc' },
-      include: { leaveGrant: { include: { leaveRequest: { include: { leaveType: true } } } } },
+      include: {
+        leaveType: true,
+        leaveGrant: {
+          include: { leaveRequest: { include: { leaveType: true } } },
+        },
+      },
     })
-    return rows.map((row) => ({
-      id: row.id,
-      matricule: row.matricule,
-      leaveGrantId: row.leaveGrantId,
-      leaveStartDate: row.leaveStartDate,
-      leaveEndDate: row.leaveEndDate,
-      resumedDate: row.resumedDate,
-      daysGranted: num(row.daysGranted),
-      leaveType: row.leaveGrant.leaveRequest.leaveType.name,
-      leaveRequestId: row.leaveGrant.leaveRequestId,
-      expectedReturnDate: row.leaveGrant.expectedReturnDate,
-    }))
+    return rows.map((row) => {
+      const grant = row.leaveGrant
+      return {
+        id: row.id,
+        matricule: row.matricule,
+        leaveGrantId: row.leaveGrantId,
+        leaveTypeId: row.leaveTypeId,
+        leaveStartDate: row.leaveStartDate,
+        leaveEndDate: row.leaveEndDate,
+        resumedDate: row.resumedDate,
+        daysGranted: num(row.daysGranted),
+        leaveType:
+          grant?.leaveRequest.leaveType.name ??
+          row.leaveType?.name ??
+          '—',
+        leaveRequestId: grant?.leaveRequestId ?? null,
+        expectedReturnDate: grant?.expectedReturnDate ?? null,
+      }
+    })
   },
   async resume(
     userId: number,
@@ -1982,7 +1987,6 @@ export const leaveRequestService = {
 
 async function leaveThroTitle(input: {
   matricule: string
-  signatoryTitle: string | null
   asOf: Date
 }): Promise<string> {
   const employee = await prisma.tbl_employee.findUnique({
@@ -1997,9 +2001,9 @@ async function leaveThroTitle(input: {
       })
     : null
   return resolveMemoThroTitle({
+    memoCode: 'LEAVE_APPROVAL',
     unitId: employee?.currentUnitId ?? null,
     sectionId: section?.id ?? null,
-    signatoryTitle: input.signatoryTitle,
     asOf: input.asOf,
   })
 }
@@ -2247,9 +2251,9 @@ async function prepareLeaveMemo(
     asOf: memoDate,
   })
   const throTitle = await resolveMemoThroTitle({
+    memoCode: 'LEAVE_APPROVAL',
     unitId: placement.unitId,
     sectionId: placement.sectionId,
-    signatoryTitle: signer.signatoryTitle,
     asOf: memoDate,
   })
   const model: LeaveMemoModel = {

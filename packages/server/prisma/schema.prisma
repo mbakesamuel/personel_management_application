@@ -1285,6 +1285,7 @@ model tbl_leave_type {
   permissionRequests    tbl_permission_request[]
   documentRequirements  tbl_leave_document_requirement[]
   durationRules         tbl_permission_duration_rule[]
+  leaveHistories        tbl_employee_leave_history[]
 }
 
 model tbl_leave_document_requirement {
@@ -1478,14 +1479,17 @@ model tbl_employee_leave_history {
   id                  Int @id @default(autoincrement())
   matricule           String
   employee            tbl_employee @relation(fields: [matricule], references: [matricule])
-  leaveGrantId        Int @unique
-  leaveGrant          tbl_leave_grant @relation(fields: [leaveGrantId], references: [id])
+  leaveGrantId        Int? @unique
+  leaveGrant          tbl_leave_grant? @relation(fields: [leaveGrantId], references: [id], onDelete: SetNull)
+  leaveTypeId         Int?
+  leaveType           tbl_leave_type? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
   leaveStartDate      DateTime
   leaveEndDate        DateTime
   resumedDate         DateTime?
   daysGranted         Decimal @db.Decimal(8,2)
   createdAt           DateTime @default(now())
   @@index([matricule])
+  @@index([leaveTypeId])
 }
 
 // RESUMPTION

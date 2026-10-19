@@ -5,6 +5,7 @@ export type CalculationReportModel = {
   applicationDate: Date
   calculatedAt: Date
   accrualStartDate: Date
+  accrualEndDate: Date
   accrualStartReason: string
   engagementDate: Date | null
   eligibleMonths: number
@@ -133,11 +134,11 @@ export function buildLeaveCalculationReportHtml(
     ${row('Calculated on', displayDate(model.calculatedAt))}
   </table>
   <h2>Due period</h2>
-  <p>Leave is due from ${escapeHtml(displayDate(model.accrualStartDate))} to ${escapeHtml(displayDate(model.applicationDate))}. The start is ${escapeHtml(model.accrualStartReason)}.</p>
+  <p>Leave is due from ${escapeHtml(displayDate(model.accrualStartDate))} to ${escapeHtml(displayDate(model.accrualEndDate))} (last working day before leave start). The start is ${escapeHtml(model.accrualStartReason)}.</p>
   <h2>Eligible months</h2>
   <p>Eligible months are the completed calendar months in that period. A month counts when the end day is on or after the start day. Eligible months: ${figure(model.eligibleMonths)}.</p>
   <h2>Length of service</h2>
-  <p>Length of service is the completed years from the engagement date (${escapeHtml(engagement)}) to the application date. Length of service: ${figure(model.serviceYears)} years.</p>
+  <p>Length of service is the completed years from the engagement date (${escapeHtml(engagement)}) to the accrual end date. Length of service: ${figure(model.serviceYears)} years.</p>
   <h2>Policy</h2>
   <p>Policy ${escapeHtml(model.policyCode)}, ${escapeHtml(model.policyName)}, ${model.method === 'METHOD_1' ? 'method 1' : 'method 2'}.</p>
   <p>${escapeHtml(methodText(model))}</p>
